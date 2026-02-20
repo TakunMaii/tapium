@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdbool.h>
 #include <stdlib.h>
 
 typedef enum TokenType TokenType;
@@ -29,6 +30,7 @@ Token *newToken(TokenType kind)
     Token *token = (Token*)malloc(sizeof(Token));
     token->next = 0;
     token->pair = 0;
+    token->num = 1;
     token->kind = kind;
     return token;
 }
@@ -39,10 +41,10 @@ void printTokens(Token *token)
         switch(token->kind)
         {
         case NULLTOK: printf("token: NULLTOK\n"); break;
-        case PLUS: printf("token: PLUS\n"); break;
-        case MINUS: printf("token: MINUS\n"); break;
-        case RIGHT: printf("token: RIGHT\n"); break;
-        case LEFT: printf("token: LEFT\n"); break;
+        case PLUS: printf("token: PLUS %d\n", token->num); break;
+        case MINUS: printf("token: MINUS %d\n", token->num); break;
+        case RIGHT: printf("token: RIGHT %d\n", token->num); break;
+        case LEFT: printf("token: LEFT %d\n", token->num); break;
         case INPUT: printf("token: INPUT\n"); break;
         case OUTPUT: printf("token: OUTPUT\n"); break;
         case START: printf("token: START\n"); break;
@@ -50,6 +52,27 @@ void printTokens(Token *token)
         }
         token = token->next;
     }
+}
+
+bool is_digit(char c)
+{
+    return c >= '0' && c <= '9';
+}
+
+int seek_num(char *program, Token *token)
+{
+    int num = 0;
+    int counter = 0;
+    while (is_digit(*program)) {
+        num = num * 10 + (*program - '0');
+        program++;
+        counter++;
+    }
+    if(counter != 0)
+    {
+        token->num = num;
+    }
+    return counter;
 }
 
 Token* tokenize(char *program)
@@ -74,11 +97,25 @@ Token* tokenize(char *program)
                 token->next = newToken(PLUS);
                 token = token->next;
                 program++;
+                program += seek_num(program, token);
             } break;
             case '-': {
                 token->next = newToken(MINUS);
                 token = token->next;
                 program++;
+                program += seek_num(program, token);
+            } break;
+            case '>': {
+                token->next = newToken(RIGHT);
+                token = token->next;
+                program++;
+                program += seek_num(program, token);
+            } break;
+            case '<': {
+                token->next = newToken(LEFT);
+                token = token->next;
+                program++;
+                program += seek_num(program, token);
             } break;
             case ',': {
                 token->next = newToken(INPUT);
@@ -106,16 +143,6 @@ Token* tokenize(char *program)
                 }
                 token->pair = pair_stack[--pair_pointer];
                 token->pair->pair = token;
-                program++;
-            } break;
-            case '>': {
-                token->next = newToken(RIGHT);
-                token = token->next;
-                program++;
-            } break;
-            case '<': {
-                token->next = newToken(LEFT);
-                token = token->next;
                 program++;
             } break;
             default:

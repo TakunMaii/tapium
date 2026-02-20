@@ -16,19 +16,19 @@ void simulate(Token *token)
                 token = token->next;
             } break;
             case PLUS: {
-                tape[pointer] ++;
+                tape[pointer] += token->num;
                 token = token->next;
             } break;
             case MINUS: {
-                tape[pointer] --;
+                tape[pointer] -= token->num;
                 token = token->next;
             } break;
             case RIGHT: {
-                pointer ++;
+                pointer += token->num;
                 token = token->next;
             } break;
             case LEFT: {
-                pointer --;
+                pointer -= token->num;
                 token = token->next;
             } break;
             case INPUT: {

@@ -14,12 +14,16 @@ Tapium runs on an infinite (not really) tape with a pointer at position 0 initia
 `#`: comment till the end of the line
 
 `+`: plus the number at the pointer by one
+`+<num>`: plus the number at the pointer by `num`
 
 `-`: minus the number at the pointer by one
+`-<num>`: minus the number at the pointer by `num`
 
 `>`: move the pointer right by one
+`><num>`: move the pointer right by `num`
 
 `<`: move the pointer left by one
+`<<num>`: move the pointer left by `num`
 
 `,`: read a number and store it at the pointer
 
