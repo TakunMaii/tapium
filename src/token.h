@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include "hashmap.h"
+#include "file.h"
 
 TokenHashMap *macroMap;
 
@@ -17,8 +18,8 @@ enum TokenType
     LEFT,
     INPUT,
     OUTPUT,
-    WHEN,//[
-    END,//]
+    WHEN,//{
+    END,//}
     START_TUPLE,
     END_TUPLE,
     MACRO,
@@ -157,6 +158,24 @@ Token* tokenize(char *program, int *consumed_length)
                 *consumed_length = program - program_head;
                 return head;
             } break;
+            case '%': {// include
+                program++;
+                char include_path[128];
+                int include_length = 0;
+                while(*program != '\n')
+                {
+                    include_path[include_length++] = *(program++);
+                }
+                long include_program_length;
+                char *include_program = read_file(include_path, &include_program_length);
+                Token *include_token = tokenize(include_program, &include_program_length);
+                Token *include_tail = include_token;
+                while (include_tail->next) {
+                    include_tail = include_tail->next;
+                }
+                include_tail->next = head;
+                head = include_token;
+            } break;
             case ' ':
             case '\n': {
                 program++;
@@ -220,18 +239,18 @@ Token* tokenize(char *program, int *consumed_length)
                 program++;
                 program+=seek_num(program, token);
             } break;
-            case '[': {
+            case '{': {
                 token->next = newToken(WHEN);
                 token = token->next;
                 pair_stack[pair_pointer++] = token;
                 program++;
             } break;
-            case ']': {
+            case '}': {
                 token->next = newToken(END);
                 token = token->next;
                 if(pair_pointer == 0)
                 {
-                    printf("Error ]\n");
+                    printf("Error }\n");
                     exit(1);
                 }
                 token->pair = pair_stack[--pair_pointer];

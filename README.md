@@ -31,9 +31,13 @@ The `<num>` above can be a non-negative integer like `37` or a single char like 
 
 `.`: write the number at the pointer as a char
 
-`[`: jump to the next instruction of the pair `]` if the number at the pointer is not zero
+`{`: jump to the next instruction of the pair `}` if the number at the pointer is not zero
 
-`]`: jump to the next instruction of the pair `[` if the number at the pointer is zero
+`}`: jump to the next instruction of the pair `{` if the number at the pointer is zero
+
+### include
+
+`%<include-path>`: read and interprete the `<include-path>` file
 
 ### macros
 

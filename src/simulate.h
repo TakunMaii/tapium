@@ -11,8 +11,6 @@ int pointer = 0;
 
 void simulate(Token *token)
 {
-    memset(tape, 0, TAPE_LENGTH);
-
     int tuple_times_stack[128];
     int tuple_times_pointer = 0;
 
