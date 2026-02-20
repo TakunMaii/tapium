@@ -1,6 +1,11 @@
+#ifndef TOKEN_H
+#define TOKEN_H
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include "hashmap.h"
+
+TokenHashMap *macroMap;
 
 typedef enum TokenType TokenType;
 enum TokenType
@@ -12,8 +17,11 @@ enum TokenType
     LEFT,
     INPUT,
     OUTPUT,
-    START,
-    END,
+    WHEN,//[
+    END,//]
+    START_TUPLE,
+    END_TUPLE,
+    MACRO,
 };
 
 typedef struct Token Token;
@@ -21,8 +29,10 @@ struct Token
 {
     Token *next;
     TokenType kind;
-    int num;
     Token *pair;
+    int num;
+
+    char macro_name[64];
 };
 
 Token *newToken(TokenType kind)
@@ -47,8 +57,11 @@ void printTokens(Token *token)
         case LEFT: printf("token: LEFT %d\n", token->num); break;
         case INPUT: printf("token: INPUT\n"); break;
         case OUTPUT: printf("token: OUTPUT\n"); break;
-        case START: printf("token: START\n"); break;
+        case WHEN: printf("token: START\n"); break;
         case END: printf("token: END\n"); break;
+        case START_TUPLE: printf("token: START_TUPLE\n"); break;
+        case END_TUPLE: printf("token: END_TUPLE %d\n", token->num); break;
+        case MACRO: printf("token: MACRO %s\n", token->macro_name); break;
         }
         token = token->next;
     }
@@ -63,26 +76,87 @@ int seek_num(char *program, Token *token)
 {
     int num = 0;
     int counter = 0;
-    while (is_digit(*program)) {
-        num = num * 10 + (*program - '0');
+    if (*program == '\'')
+    { // single char
+        program++;
+        counter++;// jump '
+        token->num = *program;
         program++;
         counter++;
+        if(*program != '\'')
+        {
+            printf("Wrong char\n");
+            exit(1);
+        }
+        program++;
+        counter++;// jump '
     }
-    if(counter != 0)
-    {
-        token->num = num;
+    else 
+    { // digitals
+        while (is_digit(*program)) {
+            num = num * 10 + (*program - '0');
+            program++;
+            counter++;
+        }
+        if(counter != 0)
+        {
+            token->num = num;
+        }
     }
     return counter;
 }
 
-Token* tokenize(char *program)
+bool is_identifier(char c)
 {
+    return (c>='a' && c<='z') ||
+           (c>='A' && c<='Z') ||
+           (c == '_');
+}
+
+int seek_identifier(char *program, char *identifer)
+{
+    int pointer = 0;
+    int counter = 0;
+    while (is_identifier(*program)) {
+        identifer[pointer++] = *program;
+        program++;
+        counter++;
+        if(counter > 64)
+        {
+            printf("identifer too long(> 64)\n");
+            exit(1);
+        }
+    }
+    identifer[pointer++] = '\0';
+    return counter;
+}
+
+Token* tokenize(char *program, int *consumed_length)
+{
+    char *program_head = program;
+
     Token *pair_stack[1024];
     int pair_pointer = 0;
+    Token *tuple_stack[1024];
+    int tuple_pointer = 0;
 
     Token *token = newToken(NULLTOK), *head = token;
     while (*program) {
+        if(is_identifier(*program))
+        {
+            // call macro
+            token->next = newToken(MACRO);
+            token = token->next;
+            program += seek_identifier(program, token->macro_name);
+            continue;
+        }
+
         switch (*program) {
+            case ';': {
+                program++;
+                *consumed_length = program - program_head;
+                return head;
+            } break;
             case ' ':
             case '\n': {
                 program++;
@@ -110,7 +184,7 @@ Token* tokenize(char *program)
                 token = token->next;
                 program++;
                 program += seek_num(program, token);
-            } break;
+           } break;
             case '<': {
                 token->next = newToken(LEFT);
                 token = token->next;
@@ -127,8 +201,27 @@ Token* tokenize(char *program)
                 token = token->next;
                 program++;
             } break;
+            case '(': {
+                token->next = newToken(START_TUPLE);
+                token = token->next;
+                tuple_stack[tuple_pointer++] = token;
+                program++;
+            } break;
+            case ')': {
+                token->next = newToken(END_TUPLE);
+                token = token->next;
+                if(tuple_pointer== 0)
+                {
+                    printf("Error )\n");
+                    exit(1);
+                }
+                token->pair = tuple_stack[--tuple_pointer];
+                token->pair->pair = token;
+                program++;
+                program+=seek_num(program, token);
+            } break;
             case '[': {
-                token->next = newToken(START);
+                token->next = newToken(WHEN);
                 token = token->next;
                 pair_stack[pair_pointer++] = token;
                 program++;
@@ -145,11 +238,30 @@ Token* tokenize(char *program)
                 token->pair->pair = token;
                 program++;
             } break;
+            case '@': {// define macro
+                program++;//jump @
+
+                // seek macro name
+                char macro_name[64];
+                program += seek_identifier(program, macro_name);
+
+                // seek macro content
+                int length = 0;
+                Token *macro_content = tokenize(program, &length);
+                program += length;
+
+                printf("Define Macro [%s]:\n", macro_name);
+                printTokens(macro_content);
+
+                token_hashmap_put(macroMap, macro_name, macro_content);
+            } break;
             default:
                 printf("Unknown char %c\n", *program);
                 exit(1);
         }
     }
+    *consumed_length = program - program_head;
     return head;
 }
 
+#endif

@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include "hashmap.h"
 #include "simulate.h"
+#include "token.h"
 
 char* read_file(const char *filename, long *file_size) {
     FILE *file = fopen(filename, "rb");  // 二进制模式读取
@@ -44,10 +46,14 @@ int main(int argn, char** argv)
         exit(1);
     }
 
+    // initialize macroMap
+    macroMap = token_hashmap_create(127);
+
     long fileLength;
     char *fileContent = read_file(argv[1], &fileLength);
 
-    Token *tokens = tokenize(fileContent);
+    int length = 0;
+    Token *tokens = tokenize(fileContent, &length);
     printf("===TOKENS===\n");
     printTokens(tokens);
     printf("===END TOKENS===\n");
