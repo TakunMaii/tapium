@@ -15,22 +15,24 @@ Tapium runs on an infinite (not really) tape with a pointer at position 0 initia
 
 `#`: comment till the end of the line
 
-`+<num>`: plus the number at the pointer by `num`
+`+<num>`: add the number at the pointer by `<num>`
 
-`-<num>`: minus the number at the pointer by `num`
+`-<num>`: substract the number at the pointer by `<num>`
 
-`><num>`: move the pointer right by `num`
+`><num>`: move the pointer right by `<num>`
 
-`<<num>`: move the pointer left by `num`
+`<<num>`: move the pointer left by `<num>`
 
 Note that there should be no spaces between the instruction and the `<num>`
 
 The `<num>` above can be a non-negative integer like `37` or a single char like `'M'`, which is optional, if which is not declared, it will be one as default. This is also true for any other `<num>` below.
 
 `,`: read a char and store it at the pointer
+
 `,%`: read a number and store it at the pointer
 
 `.`: write the number at the pointer as a char
+
 `.%`: write the number at the pointer as a number
 
 `{`: jump to the next instruction of the pair `}` if the number at the pointer is not zero
