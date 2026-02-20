@@ -41,11 +41,23 @@ void simulate(Token *token)
                 token = token->next;
             } break;
             case INPUT: {
-                scanf("%d", &tape[pointer]);
+                if(token->integerMode)
+                {
+                    scanf("%d", &tape[pointer]);
+                }
+                else {
+                    scanf("%c", (char*)&tape[pointer]);
+                }
                 token = token->next;
             } break;
             case OUTPUT: {
-                printf("%c", tape[pointer]);
+                if(token->integerMode)
+                {
+                    printf("%d", tape[pointer]);
+                }
+                else {
+                    printf("%c", tape[pointer]);
+                }
                 token = token->next;
             } break;
             case START_TUPLE: {
@@ -88,6 +100,10 @@ void simulate(Token *token)
             case MACRO: {
                 Token *macro_content = token_hashmap_get(macroMap, token->macro_name);
                 simulate(macro_content);
+                token = token->next;
+            } break;
+            case EMBED: {
+                token->embedded_func();
                 token = token->next;
             } break;
         }

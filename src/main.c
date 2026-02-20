@@ -5,6 +5,18 @@
 #include "token.h"
 #include "file.h"
 
+void tap_get_rand()
+{
+    tape[pointer] = rand();
+}
+
+void register_embeded_func()
+{
+    Token *token = newToken(EMBED);
+    token->embedded_func = tap_get_rand;
+    token_hashmap_put(macroMap, "rand", token);
+}
+
 int main(int argn, char** argv)
 {
     if(argn < 2)
@@ -26,6 +38,7 @@ int main(int argn, char** argv)
     printf("===END TOKENS===\n");
 
     memset(tape, 0, TAPE_LENGTH);
+    register_embeded_func();
     simulate(tokens);
     return 0;
 }

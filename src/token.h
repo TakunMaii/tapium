@@ -11,6 +11,7 @@ TokenHashMap *macroMap;
 typedef enum TokenType TokenType;
 enum TokenType
 {
+    EMBED,
     NULLTOK,
     PLUS,
     MINUS,
@@ -33,7 +34,11 @@ struct Token
     Token *pair;
     int num;
 
+    bool integerMode;//input/ouput char mode or integer mode
+
     char macro_name[64];
+
+    void (*embedded_func)();
 };
 
 Token *newToken(TokenType kind)
@@ -43,6 +48,7 @@ Token *newToken(TokenType kind)
     token->pair = 0;
     token->num = 1;
     token->kind = kind;
+    token->integerMode = false;
     return token;
 }
 
@@ -51,6 +57,7 @@ void printTokens(Token *token)
     while (token) {
         switch(token->kind)
         {
+        case EMBED: printf("token: EMBED\n"); break;
         case NULLTOK: printf("token: NULLTOK\n"); break;
         case PLUS: printf("token: PLUS %d\n", token->num); break;
         case MINUS: printf("token: MINUS %d\n", token->num); break;
@@ -216,11 +223,21 @@ Token* tokenize(char *program, int *consumed_length)
                 token->next = newToken(INPUT);
                 token = token->next;
                 program++;
+                if(*program == '%')
+                {
+                    token->integerMode = true;
+                    program++;
+                }
             } break;
             case '.': {
                 token->next = newToken(OUTPUT);
                 token = token->next;
                 program++;
+                if(*program == '%')
+                {
+                    token->integerMode = true;
+                    program++;
+                }
             } break;
             case '(': {
                 token->next = newToken(START_TUPLE);

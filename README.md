@@ -27,9 +27,11 @@ Note that there should be no spaces between the instruction and the `<num>`
 
 The `<num>` above can be a non-negative integer like `37` or a single char like `'M'`, which is optional, if which is not declared, it will be one as default. This is also true for any other `<num>` below.
 
-`,`: read a number and store it at the pointer
+`,`: read a char and store it at the pointer
+`,%`: read a number and store it at the pointer
 
 `.`: write the number at the pointer as a char
+`.%`: write the number at the pointer as a number
 
 `{`: jump to the next instruction of the pair `}` if the number at the pointer is not zero
 
