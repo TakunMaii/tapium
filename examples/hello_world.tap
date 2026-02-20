@@ -1,4 +1,4 @@
-%std.tap
+%examples/std.tap
 
 @main
     +'H'>

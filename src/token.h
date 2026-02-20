@@ -166,9 +166,11 @@ Token* tokenize(char *program, int *consumed_length)
                 {
                     include_path[include_length++] = *(program++);
                 }
+                include_path[include_length] = '\0';
                 long include_program_length;
+                int include_token_length;
                 char *include_program = read_file(include_path, &include_program_length);
-                Token *include_token = tokenize(include_program, &include_program_length);
+                Token *include_token = tokenize(include_program, &include_token_length);
                 Token *include_tail = include_token;
                 while (include_tail->next) {
                     include_tail = include_tail->next;
