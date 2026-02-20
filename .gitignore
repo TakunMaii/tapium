@@ -1,0 +1,5 @@
+
+tapinum
+compile_commands.json
+*.swp
+.cache/
