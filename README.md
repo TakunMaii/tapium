@@ -4,7 +4,7 @@
 
 ```bash
 $ make
-$ ./tapium test.tap
+$ ./tapium examples/hello_world.tap
 ```
 
 ## Tutorials
@@ -72,3 +72,13 @@ Calling macros can be nested.
 The tuple will be run for `<num>` times.
 
 The tuples can be nested.
+
+### embedded functions
+
+Embedded functions are functions defined in C and can be used in Tapium. Here is the list of them:
+
++ `rand`: get a random integer and store it at the pointer
++ `add`: add the integer at this slot by the integer at the next right slot
++ `sub`: substract the integer at this slot by the integer at the next right slot
++ `mul`: multiply the integer at this slot by the integer at the next right slot
++ `div`: divide the integer at this slot by the integer at the next right slot
