@@ -27,17 +27,23 @@ Note that there should be no spaces between the instruction and the `<num>`
 
 The `<num>` above can be a non-negative integer like `37` or a single char like `'M'`, which is optional, if which is not declared, it will be one as default. This is also true for any other `<num>` below.
 
-`,`: read a char and store it at the pointer
+`,<type>`: read a value and store it on the tape at the pointer
 
-`,%`: read a number and store it at the pointer
+`.<type>`: output the value one the tape at the pointer
 
-`.`: write the number at the pointer as a char
+The `<type>` above can be `#` for integers, `%` for strings or not given for chars
 
-`.%`: write the number at the pointer as a number
+`.%`: write the number at the pointer as a string
 
 `{`: jump to the next instruction of the pair `}` if the number at the pointer is not zero
 
 `}`: jump to the next instruction of the pair `{` if the number at the pointer is zero
+
+### strings
+
+Strings are stored in the memory whose pointer will be recoreded on the tape.
+
+`"<string-content>"`: apply a new space in the memory, put the string content in it and then recored the pointer to that memory on the tape at the pointer
 
 ### include
 

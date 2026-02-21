@@ -23,7 +23,16 @@ enum TokenType
     END,//}
     START_TUPLE,
     END_TUPLE,
+    NEW_STRING,
     MACRO,
+};
+
+typedef enum Type Type;
+enum Type
+{
+    INTEGER,
+    CHAR,
+    STRING,
 };
 
 typedef struct Token Token;
@@ -34,11 +43,13 @@ struct Token
     Token *pair;
     int num;
 
-    bool integerMode;//input/ouput char mode or integer mode
+    Type type;
 
     char macro_name[64];
 
     void (*embedded_func)();
+
+    void *ptr;
 };
 
 Token *newToken(TokenType kind)
@@ -48,7 +59,7 @@ Token *newToken(TokenType kind)
     token->pair = 0;
     token->num = 1;
     token->kind = kind;
-    token->integerMode = false;
+    token->type = CHAR;
     return token;
 }
 
@@ -70,6 +81,7 @@ void printTokens(Token *token)
         case START_TUPLE: printf("token: START_TUPLE\n"); break;
         case END_TUPLE: printf("token: END_TUPLE %d\n", token->num); break;
         case MACRO: printf("token: MACRO %s\n", token->macro_name); break;
+        case NEW_STRING: printf("token: NEW_STRING %s\n", (char*)token->ptr); break;
         }
         token = token->next;
     }
@@ -225,7 +237,12 @@ Token* tokenize(char *program, int *consumed_length)
                 program++;
                 if(*program == '%')
                 {
-                    token->integerMode = true;
+                    token->type = STRING;
+                    program++;
+                }
+                else if(*program == '#')
+                {
+                    token->type = INTEGER;
                     program++;
                 }
             } break;
@@ -235,7 +252,12 @@ Token* tokenize(char *program, int *consumed_length)
                 program++;
                 if(*program == '%')
                 {
-                    token->integerMode = true;
+                    token->type = STRING;
+                    program++;
+                }
+                else if(*program == '#')
+                {
+                    token->type = INTEGER;
                     program++;
                 }
             } break;
@@ -292,6 +314,25 @@ Token* tokenize(char *program, int *consumed_length)
                 printTokens(macro_content);
 
                 token_hashmap_put(macroMap, macro_name, macro_content);
+            } break;
+            case '\"': {
+                program++;
+                char *str = (char*)malloc(256);
+                int length = 0;
+                while(*program != '\"')
+                {
+                    str[length++] = *(program++);
+                    if(length>256)
+                    {
+                        printf("string too long!!\n");
+                        exit(1);
+                    }
+                }
+                program++;//jump the second "
+                str[length++] = '\0';
+                token->next = newToken(NEW_STRING);
+                token->next->ptr = str;
+                token = token->next;
             } break;
             default:
                 printf("Unknown char %c\n", *program);

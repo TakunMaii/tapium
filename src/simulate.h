@@ -3,10 +3,11 @@
 #include "hashmap.h"
 #include "token.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define TAPE_LENGTH 1024
-int tape[TAPE_LENGTH];
+long long tape[TAPE_LENGTH];
 int pointer = 0;
 
 void simulate(Token *token)
@@ -41,22 +42,34 @@ void simulate(Token *token)
                 token = token->next;
             } break;
             case INPUT: {
-                if(token->integerMode)
+                if(token->type == INTEGER)
                 {
-                    scanf("%d", &tape[pointer]);
+                    scanf("%lld", &tape[pointer]);
                 }
-                else {
+                else if(token->type == CHAR)
+                {
                     scanf("%c", (char*)&tape[pointer]);
+                }
+                else if(token->type == STRING)
+                {
+                    char *str = (char*)malloc(256);
+                    scanf("%s", str);
+                    tape[pointer] = (long long)str;
                 }
                 token = token->next;
             } break;
             case OUTPUT: {
-                if(token->integerMode)
+                if(token->type == INTEGER)
                 {
-                    printf("%d", tape[pointer]);
+                    printf("%lld", tape[pointer]);
                 }
-                else {
-                    printf("%c", tape[pointer]);
+                else if(token->type == CHAR)
+                {
+                    printf("%c", (int)tape[pointer]);
+                }
+                else if(token->type == STRING)
+                {
+                    printf("%s", (char*)tape[pointer]);
                 }
                 token = token->next;
             } break;
@@ -104,6 +117,10 @@ void simulate(Token *token)
             } break;
             case EMBED: {
                 token->embedded_func();
+                token = token->next;
+            } break;
+            case NEW_STRING: {
+                tape[pointer] = (long long)token->ptr;
                 token = token->next;
             } break;
         }

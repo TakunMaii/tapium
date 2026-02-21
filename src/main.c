@@ -10,11 +10,47 @@ void tap_get_rand()
     tape[pointer] = rand();
 }
 
+void tap_add()
+{
+    tape[pointer] = tape[pointer] + tape[pointer+1];
+}
+
+void tap_sub()
+{
+    tape[pointer] = tape[pointer] - tape[pointer+1];
+}
+
+void tap_mul()
+{
+    tape[pointer] = tape[pointer] * tape[pointer+1];
+}
+
+void tap_div()
+{
+    tape[pointer] = tape[pointer] / tape[pointer+1];
+}
+
 void register_embeded_func()
 {
     Token *token = newToken(EMBED);
     token->embedded_func = tap_get_rand;
     token_hashmap_put(macroMap, "rand", token);
+
+    token = newToken(EMBED);
+    token->embedded_func = tap_add;
+    token_hashmap_put(macroMap, "add", token);
+
+    token = newToken(EMBED);
+    token->embedded_func = tap_sub;
+    token_hashmap_put(macroMap, "sub", token);
+
+    token = newToken(EMBED);
+    token->embedded_func = tap_mul;
+    token_hashmap_put(macroMap, "mul", token);
+
+    token = newToken(EMBED);
+    token->embedded_func = tap_div;
+    token_hashmap_put(macroMap, "div", token);
 }
 
 int main(int argn, char** argv)
