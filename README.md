@@ -33,9 +33,9 @@ The `<num>` above can be a non-negative integer like `37` or a single char like 
 
 The `<type>` above can be `#` for integers, `%` for strings or not given for chars
 
-`[`: jump to the next instruction of the pair `]` if the number at the pointer is not zero
+`[`: jump to the next instruction of the pair `]` if the number at the pointer is zero
 
-`]`: jump to the next instruction of the pair `[` if the number at the pointer is zero
+`]`: jump to the next instruction of the pair `[` if the number at the pointer is not zero
 
 ### regions
 

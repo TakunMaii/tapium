@@ -1,3 +1,37 @@
-@print_str
-    [.>]
+# set this slot to zero
+@clear
+    [-]
 ;
+
+# duplicate the right one to this slot
+@dup
+{2
+    clear
+    >
+    [-<+>]
+    <
+}1;
+
+# swap the right one and this one
+@swp
+{2
+    [->>+<<]
+    dup > dup <
+}2;
+
+# add this one by the right one
+@add
+{2
+    >
+    [-<+>]
+    <
+}1;
+
+# sub this one by the right one
+@sub
+{2
+    >
+    [-<->]
+    <
+}1;
+
