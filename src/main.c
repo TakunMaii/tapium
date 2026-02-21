@@ -7,26 +7,36 @@
 
 void tap_get_rand()
 {
+    long long *tape = region_stack[region_pointer-1]->tape;
+    int pointer = region_stack[region_pointer-1]->pointer;
     tape[pointer] = rand();
 }
 
 void tap_add()
 {
+    long long *tape = region_stack[region_pointer-1]->tape;
+    int pointer = region_stack[region_pointer-1]->pointer;
     tape[pointer] = tape[pointer] + tape[pointer+1];
 }
 
 void tap_sub()
 {
+    long long *tape = region_stack[region_pointer-1]->tape;
+    int pointer = region_stack[region_pointer-1]->pointer;
     tape[pointer] = tape[pointer] - tape[pointer+1];
 }
 
 void tap_mul()
 {
+    long long *tape = region_stack[region_pointer-1]->tape;
+    int pointer = region_stack[region_pointer-1]->pointer;
     tape[pointer] = tape[pointer] * tape[pointer+1];
 }
 
 void tap_div()
 {
+    long long *tape = region_stack[region_pointer-1]->tape;
+    int pointer = region_stack[region_pointer-1]->pointer;
     tape[pointer] = tape[pointer] / tape[pointer+1];
 }
 
@@ -73,7 +83,7 @@ int main(int argn, char** argv)
     printTokens(tokens);
     printf("===END TOKENS===\n");
 
-    memset(tape, 0, TAPE_LENGTH);
+    pushRegionWith(0);// initial region
     register_embeded_func();
     simulate(tokens);
     return 0;

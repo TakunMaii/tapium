@@ -7,8 +7,63 @@
 #include <string.h>
 
 #define TAPE_LENGTH 1024
-long long tape[TAPE_LENGTH];
-int pointer = 0;
+
+typedef struct Region Region;
+struct Region
+{
+    long long tape[TAPE_LENGTH];
+    int pointer;
+};
+
+Region *region_stack[1024];
+int region_pointer = 0;
+
+void pushRegionWith(int num)
+{
+    region_stack[region_pointer++] = (Region*)malloc(sizeof(Region));
+    region_stack[region_pointer-1]->pointer = 0;
+    memset(region_stack[region_pointer-1]->tape, 0, TAPE_LENGTH);
+
+    if(num > 0)
+    {
+        if(region_pointer <= 1)
+        {
+            printf("Trying to push region with params when there's no father region\n");
+            exit(1);
+        }
+        // copy the pointer~pointer+num numbers in father region to the 0~num in this region
+        for(int i = region_stack[region_pointer-2]->pointer, counter = 0;
+            counter<num;
+            i++, counter++)
+        {
+            region_stack[region_pointer-1]->tape[counter] = region_stack[region_pointer-2]->tape[i];
+        }
+    }
+}
+
+void popRegionWith(int num)
+{
+    if(num > 0)
+    {
+        if(region_pointer <= 1)
+        {
+            printf("Trying to pop region with params when there's no father region\n");
+            exit(1);
+        }
+        // copy the pointer~pointer+num numbers in this region to the pointer~pointer+num in father region
+        for(int i = region_stack[region_pointer-2]->pointer,
+                j = region_stack[region_pointer-1]->pointer,
+                counter = 0;
+            counter<num;
+            i++, j++, counter++)
+        {
+            region_stack[region_pointer-1]->tape[j] = region_stack[region_pointer-2]->tape[i];
+        }
+    }
+
+    free(region_stack[region_pointer-1]);
+    region_pointer --;
+}
 
 void simulate(Token *token)
 {
@@ -21,27 +76,33 @@ void simulate(Token *token)
                 token = token->next;
             } break;
             case PLUS: {
+                long long *tape = region_stack[region_pointer-1]->tape;
+                int pointer = region_stack[region_pointer-1]->pointer;
                 tape[pointer] += token->num;
                 token = token->next;
             } break;
             case MINUS: {
+                long long *tape = region_stack[region_pointer-1]->tape;
+                int pointer = region_stack[region_pointer-1]->pointer;
                 tape[pointer] -= token->num;
                 token = token->next;
             } break;
             case RIGHT: {
-                pointer += token->num;
+                region_stack[region_pointer-1]->pointer += token->num;
                 token = token->next;
             } break;
             case LEFT: {
-                pointer -= token->num;
-                if(pointer<0)
+                region_stack[region_pointer-1]->pointer -= token->num;
+                if(region_stack[region_pointer-1]->pointer<0)
                 {
-                    printf("Pointer too left!! %d", pointer);
+                    printf("Pointer too left!! %d", region_stack[region_pointer-1]->pointer);
                     exit(1);
                 }
                 token = token->next;
             } break;
             case INPUT: {
+                long long *tape = region_stack[region_pointer-1]->tape;
+                int pointer = region_stack[region_pointer-1]->pointer;
                 if(token->type == INTEGER)
                 {
                     scanf("%lld", &tape[pointer]);
@@ -59,6 +120,8 @@ void simulate(Token *token)
                 token = token->next;
             } break;
             case OUTPUT: {
+                long long *tape = region_stack[region_pointer-1]->tape;
+                int pointer = region_stack[region_pointer-1]->pointer;
                 if(token->type == INTEGER)
                 {
                     printf("%lld", tape[pointer]);
@@ -97,6 +160,8 @@ void simulate(Token *token)
                 }
             } break;
             case WHEN: {
+                long long *tape = region_stack[region_pointer-1]->tape;
+                int pointer = region_stack[region_pointer-1]->pointer;
                 if(!tape[pointer])
                 {
                     token = token->pair->next;
@@ -104,6 +169,8 @@ void simulate(Token *token)
                 else token = token->next;
             } break;
             case END: {
+                long long *tape = region_stack[region_pointer-1]->tape;
+                int pointer = region_stack[region_pointer-1]->pointer;
                 if(tape[pointer])
                 {
                     token = token->pair->next;
@@ -120,7 +187,17 @@ void simulate(Token *token)
                 token = token->next;
             } break;
             case NEW_STRING: {
+                long long *tape = region_stack[region_pointer-1]->tape;
+                int pointer = region_stack[region_pointer-1]->pointer;
                 tape[pointer] = (long long)token->ptr;
+                token = token->next;
+            } break;
+            case START_REGION: {
+                pushRegionWith(token->num);
+                token = token->next;
+            } break;
+            case END_REGION: {
+                popRegionWith(token->num);
                 token = token->next;
             } break;
         }

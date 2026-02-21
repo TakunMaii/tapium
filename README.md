@@ -33,11 +33,19 @@ The `<num>` above can be a non-negative integer like `37` or a single char like 
 
 The `<type>` above can be `#` for integers, `%` for strings or not given for chars
 
-`.%`: write the number at the pointer as a string
+`[`: jump to the next instruction of the pair `]` if the number at the pointer is not zero
 
-`{`: jump to the next instruction of the pair `}` if the number at the pointer is not zero
+`]`: jump to the next instruction of the pair `[` if the number at the pointer is zero
 
-`}`: jump to the next instruction of the pair `{` if the number at the pointer is zero
+### regions
+
+Region is a two-element tuple consisting of a tape and a pointer. Tapium programs runs on a region but there can be multiple regions in the same time, laying out as a stack, while the program runs on the region at the top of the stack.
+
+`{<num>`: create a new region, copy the pointer-th ~ (pointer+`<num>`)-th numbers on this region to the beginning `<num>` slots of the new region and push the new region to the stack. We call the old region is the "father region" of the new region.
+
+`}<num>`: copy the pointer-th ~ (pointer+`<num>`)-th numbers on this region to the its-pointer-th ~ (its-pointer+`<num>`)-th slots of the father region and then pop this region.
+
+Regions enable you to have an independent space to run certain instructions with a way of communicating between the inner and outer space.
 
 ### strings
 
@@ -75,7 +83,7 @@ The tuples can be nested.
 
 ### embedded functions
 
-Embedded functions are functions defined in C and can be used in Tapium. Here is the list of them:
+Embedded functions are functions defined in C and can be used in Tapium, which exist in Tapium as macros. Here is the list of them:
 
 + `rand`: get a random integer and store it at the pointer
 + `add`: add the integer at this slot by the integer at the next right slot

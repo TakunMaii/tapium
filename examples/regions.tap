@@ -1,0 +1,25 @@
+@foo_print
+{1
+    > +10 <
+    .% >.<
+    +1 .% >.<
+    +1 .% >.<
+    +1 .% >.<
+}0;
+
+@bar_print
+    > +10 <
+    .% >.<
+    +1 .% >.<
+    +1 .% >.<
+    +1 .% >.<
+;
+
+"Hello, world!"
+foo_print
+foo_print
+foo_print
+
+bar_print
+bar_print
+bar_print

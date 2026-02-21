@@ -19,10 +19,12 @@ enum TokenType
     LEFT,
     INPUT,
     OUTPUT,
-    WHEN,//{
-    END,//}
+    WHEN,//[
+    END,//]
     START_TUPLE,
     END_TUPLE,
+    START_REGION,//{
+    END_REGION,//}
     NEW_STRING,
     MACRO,
 };
@@ -80,6 +82,8 @@ void printTokens(Token *token)
         case END: printf("token: END\n"); break;
         case START_TUPLE: printf("token: START_TUPLE\n"); break;
         case END_TUPLE: printf("token: END_TUPLE %d\n", token->num); break;
+        case START_REGION: printf("token: START_REGION\n"); break;
+        case END_REGION: printf("token: END_REGION %d\n", token->num); break;
         case MACRO: printf("token: MACRO %s\n", token->macro_name); break;
         case NEW_STRING: printf("token: NEW_STRING %s\n", (char*)token->ptr); break;
         }
@@ -280,23 +284,35 @@ Token* tokenize(char *program, int *consumed_length)
                 program++;
                 program+=seek_num(program, token);
             } break;
-            case '{': {
+            case '[': {
                 token->next = newToken(WHEN);
                 token = token->next;
                 pair_stack[pair_pointer++] = token;
                 program++;
             } break;
-            case '}': {
+            case ']': {
                 token->next = newToken(END);
                 token = token->next;
                 if(pair_pointer == 0)
                 {
-                    printf("Error }\n");
+                    printf("Error ]\n");
                     exit(1);
                 }
                 token->pair = pair_stack[--pair_pointer];
                 token->pair->pair = token;
                 program++;
+            } break;
+            case '{': {
+                token->next = newToken(START_REGION);
+                token = token->next;
+                program++;
+                program += seek_num(program, token);
+            } break;
+            case '}': {
+                token->next = newToken(END_REGION);
+                token = token->next;
+                program++;
+                program += seek_num(program, token);
             } break;
             case '@': {// define macro
                 program++;//jump @
