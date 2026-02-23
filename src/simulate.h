@@ -13,6 +13,9 @@ struct Region
 {
     long long tape[TAPE_LENGTH];
     int pointer;
+
+    long long stack[TAPE_LENGTH];
+    int stack_pointer;
 };
 
 Region *region_stack[1024];
@@ -23,6 +26,9 @@ void pushRegionWith(int num)
     region_stack[region_pointer++] = (Region*)malloc(sizeof(Region));
     region_stack[region_pointer-1]->pointer = 0;
     memset(region_stack[region_pointer-1]->tape, 0, TAPE_LENGTH);
+
+    region_stack[region_pointer-1]->stack_pointer = 0;
+    memset(region_stack[region_pointer-1]->stack, 0, TAPE_LENGTH);
 
     if(num > 0)
     {

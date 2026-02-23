@@ -18,20 +18,3 @@
     [->>+<<]
     dup > dup <
 }2;
-
-# add this one by the right one
-@add
-{2
-    >
-    [-<+>]
-    <
-}1;
-
-# sub this one by the right one
-@sub
-{2
-    >
-    [-<->]
-    <
-}1;
-

@@ -1,11 +1,24 @@
+@prt
+    .# > . <
+;
 
 @main
-    >>+10<< # 10 = '\n'
-    +15 >+22<
-    add .% >>.<<
-    sub .% >>.<<
-    mul .% >>.<<
-    div .% >>.<<
+    +10 push
+    +15
+    > +10 < # \n
+
+    prt
+    add prt
+    sub prt
+    mul prt
+    div prt
+    greater prt
+    less prt
+    eq prt
+    ineq prt
+    greater_eq prt
+    less_eq prt
+    pop prt
 ;
 
 main

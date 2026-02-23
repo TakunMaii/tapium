@@ -9,7 +9,7 @@ $ ./tapium examples/hello_world.tap
 
 ## Tutorials
 
-Tapium runs on an infinite (not really) tape with a pointer at position 0 initially. Every slot on the tape stores a signed 64-bit integer. The position of the pointer can not be negative.
+Tapium runs on an infinite (not really) tape with a pointer at position 0 initially and an infinite (also not really) stack. Every slot on the tape or the stack stores a signed 64-bit integer. The position of the pointer can not be negative.
 
 ### basic instructions
 
@@ -39,13 +39,15 @@ The `<type>` above can be `#` for integers, `%` for strings or not given for cha
 
 ### regions
 
-Region is a two-element tuple consisting of a tape and a pointer. Tapium programs runs on a region but there can be multiple regions in the same time, laying out as a stack, while the program runs on the region at the top of the stack.
+Region is a three-element tuple consisting of a tape, a pointer and a stack. Tapium programs runs on a region but there can be multiple regions in the same time, laying out as a stack, while the program runs on the region at the top of the stack.
 
 `{<num>`: create a new region, copy the pointer-th ~ (pointer+`<num>`)-th numbers on this region to the beginning `<num>` slots of the new region and push the new region to the stack. We call the old region is the "father region" of the new region.
 
 `}<num>`: copy the pointer-th ~ (pointer+`<num>`)-th numbers on this region to the its-pointer-th ~ (its-pointer+`<num>`)-th slots of the father region and then pop this region.
 
 Regions enable you to have an independent space to run certain instructions with a way of communicating between the inner and outer space.
+
+Please note that the stack of any region will be not copied or pasted while switching regions (unlike the tape).
 
 ### strings
 
@@ -86,7 +88,16 @@ The tuples can be nested.
 Embedded functions are functions defined in C and can be used in Tapium, which exist in Tapium as macros. Here is the list of them:
 
 + `rand`: get a random integer and store it at the pointer
-+ `add`: add the integer at this slot by the integer at the next right slot
-+ `sub`: substract the integer at this slot by the integer at the next right slot
-+ `mul`: multiply the integer at this slot by the integer at the next right slot
-+ `div`: divide the integer at this slot by the integer at the next right slot
++ `push`: push the integer at this slot to the stack top
++ `pop`: pop the integer at the stack top to this slot
++ `peek`: copy the integer at the stack top to this slot
++ `add`: add the integer at this slot by the integer at the stack top
++ `sub`: substract the integer at this slot by the integer at the stack top
++ `mul`: multiply the integer at this slot by the integer at the stack top
++ `div`: divide the integer at this slot by the integer at the stack top
++ `greater`: compare integer at this slot by the integer at the stack top, if greater, set it to 1, otherwise, 0
++ `less`: compare integer at this slot by the integer at the stack top, if less, set it to 1, otherwise, 0
++ `greater_eq`: compare integer at this slot by the integer at the stack top, if greater or equal, set it to 1, otherwise, 0
++ `less_eq`: compare integer at this slot by the integer at the stack top, if less or equal, set it to 1, otherwise, 0
++ `eq`: compare integer at this slot by the integer at the stack top, if equal, set it to 1, otherwise, 0
++ `ineq`: compare integer at this slot by the integer at the stack top, if inequal, set it to 1, otherwise, 0
