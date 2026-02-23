@@ -335,8 +335,10 @@ Token* tokenize(char *program, int *consumed_length)
                 Token *macro_content = tokenize(program, &length);
                 program += length;
 
+#ifdef DEBUG
                 printf("Define Macro [%s]:\n", macro_name);
                 printTokens(macro_content);
+#endif
 
                 token_hashmap_put(macroMap, macro_name, macro_content);
             } break;

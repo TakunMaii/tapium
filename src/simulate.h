@@ -21,6 +21,12 @@ struct Region
 Region *region_stack[1024];
 int region_pointer = 0;
 
+#define REGION (region_stack[region_pointer-1])
+#define TAPE (REGION->tape)
+#define POINTER (REGION->pointer)
+#define STACK (REGION->stack)
+#define STPTR (REGION->stack_pointer)
+
 void pushRegionWith(int num)
 {
     region_stack[region_pointer++] = (Region*)malloc(sizeof(Region));
