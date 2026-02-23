@@ -1,4 +1,13 @@
-# Tapium - A tape-based programming language inspired by brainf\*ck
+# Tapium
+
+## Overview
+
+Tapium is a tape-based programming language, inspired by branf\*ck. Unlike most existing programming languages, Tapium does not have the concept of "variables." Instead, it aligns more closely with how computers fundamentally operate: using a tape and a stack. As an experimental project, Tapium is not intended to replace any existing programming language. Rather, it aims to offer a fresh perspective for re-examining our approach to programming and the organization of data, in hopes of inspiring greater ideas.
+
+- [ ] Better usability, at least close to C
+- [ ] Compilation
+- [ ] Ability to utilize C libraries
+- [ ] Raidity, at least close to C
 
 ## Quick Start
 
