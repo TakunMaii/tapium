@@ -1,0 +1,14 @@
+
+@prt_n_for_n_times
+{0
+    +10
+    > +10 <
+    [
+        push (.#)$
+        > . <
+        -1 push
+    ]
+}0
+;
+
+prt_n_for_n_times

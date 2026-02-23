@@ -25,7 +25,7 @@ Tapium runs on an infinite (not really) tape with a pointer at position 0 initia
 
 Note that there should be no spaces between the instruction and the `<num>`
 
-The `<num>` above can be a non-negative integer like `37` or a single char like `'M'`, which is optional, if which is not declared, it will be one as default. This is also true for any other `<num>` below.
+The `<num>` above can be a non-negative integer like `37`, a single char like `'M'` or `$` meaning using the number at the top of the stack, where if the num is not declared, it will be one as default. This is also true for any other `<num>` below.
 
 `,<type>`: read a value and store it on the tape at the pointer
 

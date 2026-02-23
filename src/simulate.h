@@ -84,21 +84,33 @@ void simulate(Token *token)
             case PLUS: {
                 long long *tape = region_stack[region_pointer-1]->tape;
                 int pointer = region_stack[region_pointer-1]->pointer;
-                tape[pointer] += token->num;
+                int num = token->num_using_stack_top ? 
+                    region_stack[region_pointer-1]->stack[region_stack[region_pointer-1]->stack_pointer-1]
+                    : token->num;
+                tape[pointer] += num;
                 token = token->next;
             } break;
             case MINUS: {
                 long long *tape = region_stack[region_pointer-1]->tape;
                 int pointer = region_stack[region_pointer-1]->pointer;
-                tape[pointer] -= token->num;
+                int num = token->num_using_stack_top ? 
+                    region_stack[region_pointer-1]->stack[region_stack[region_pointer-1]->stack_pointer-1]
+                    : token->num;
+                tape[pointer] -= num;
                 token = token->next;
             } break;
             case RIGHT: {
-                region_stack[region_pointer-1]->pointer += token->num;
+                int num = token->num_using_stack_top ? 
+                    region_stack[region_pointer-1]->stack[region_stack[region_pointer-1]->stack_pointer-1]
+                    : token->num;
+                region_stack[region_pointer-1]->pointer += num;
                 token = token->next;
             } break;
             case LEFT: {
-                region_stack[region_pointer-1]->pointer -= token->num;
+                int num = token->num_using_stack_top ? 
+                    region_stack[region_pointer-1]->stack[region_stack[region_pointer-1]->stack_pointer-1]
+                    : token->num;
+                region_stack[region_pointer-1]->pointer -= num;
                 if(region_stack[region_pointer-1]->pointer<0)
                 {
                     printf("Pointer too left!! %d", region_stack[region_pointer-1]->pointer);
@@ -144,7 +156,9 @@ void simulate(Token *token)
             } break;
             case START_TUPLE: {
                 // store tuple time num
-                tuple_times_stack[tuple_times_pointer++] = token->pair->num;
+                tuple_times_stack[tuple_times_pointer++] = token->pair->num_using_stack_top ? 
+                    region_stack[region_pointer-1]->stack[region_stack[region_pointer-1]->stack_pointer-1]
+                    :token->pair->num;
                 if(token->pair->num <= 0)// not run the tuple
                 {
                     tuple_times_pointer--;

@@ -43,7 +43,9 @@ struct Token
     Token *next;
     TokenType kind;
     Token *pair;
+
     int num;
+    bool num_using_stack_top;
 
     Type type;
 
@@ -60,6 +62,7 @@ Token *newToken(TokenType kind)
     token->next = 0;
     token->pair = 0;
     token->num = 1;
+    token->num_using_stack_top = false;
     token->kind = kind;
     token->type = CHAR;
     return token;
@@ -114,6 +117,12 @@ int seek_num(char *program, Token *token)
         }
         program++;
         counter++;// jump '
+    }
+    else if(*program == '$')
+    { // stack top
+        program++;
+        counter++;
+        token->num_using_stack_top = true;
     }
     else 
     { // digitals
