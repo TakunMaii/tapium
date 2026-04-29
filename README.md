@@ -14,6 +14,8 @@ Tapium is a tape-based programming language, inspired by branf\*ck. Unlike most 
 ```bash
 $ make
 $ ./tapium examples/hello_world.tap
+$ ./tapium build examples/hello_world.tap -o hello.exe
+$ ./hello.exe
 ```
 
 ## Tutorials

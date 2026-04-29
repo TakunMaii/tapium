@@ -1,17 +1,61 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "hashmap.h"
 #include "simulate.h"
 #include "token.h"
 #include "file.h"
 #include "embeded_func.h"
+#include "compile.h"
 
 int main(int argn, char** argv)
 {
     if(argn < 2)
     {
-        printf("Usage: %s <filename>\n", argv[0]);
+        printf("Usage:\n");
+        printf("  %s <filename>\n", argv[0]);
+        printf("  %s build <filename> [-o output.exe]\n", argv[0]);
         exit(1);
+    }
+
+    if(strcmp(argv[1], "build") == 0)
+    {
+        if(argn < 3)
+        {
+            printf("Usage: %s build <filename> [-o output.exe]\n", argv[0]);
+            return 1;
+        }
+
+        const char *input_path = argv[2];
+        char *output_path_owned = 0;
+        const char *output_path = 0;
+
+        if(argn >= 5 && strcmp(argv[3], "-o") == 0)
+        {
+            output_path = argv[4];
+        }
+        else if(argn == 3)
+        {
+            output_path_owned = default_output_name(input_path);
+            if(!output_path_owned)
+            {
+                return 1;
+            }
+            output_path = output_path_owned;
+        }
+        else
+        {
+            printf("Usage: %s build <filename> [-o output.exe]\n", argv[0]);
+            return 1;
+        }
+
+        int build_code = compile_to_executable(input_path, output_path);
+        if(build_code == 0)
+        {
+            printf("Build succeeded: %s\n", output_path);
+        }
+        free(output_path_owned);
+        return build_code;
     }
 
     // read the program file
