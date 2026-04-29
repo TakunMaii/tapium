@@ -16,7 +16,9 @@ int main(int argn, char** argv)
         printf("Usage:\n");
         printf("  %s <filename>\n", argv[0]);
         printf("  %s c <filename> [-o output.c]\n", argv[0]);
+        printf("  %s asm <filename> [-o output.s]\n", argv[0]);
         printf("  %s build <filename> [-o output.exe]\n", argv[0]);
+        printf("  %s build-asm <filename> [-o output.exe]\n", argv[0]);
         printf("  %s ir <filename> [-o output.ir]\n", argv[0]);
         exit(1);
     }
@@ -59,6 +61,46 @@ int main(int argn, char** argv)
         }
         free(output_path_owned);
         return c_code;
+    }
+
+    if(strcmp(argv[1], "asm") == 0)
+    {
+        if(argn < 3)
+        {
+            printf("Usage: %s asm <filename> [-o output.s]\n", argv[0]);
+            return 1;
+        }
+
+        const char *input_path = argv[2];
+        char *output_path_owned = 0;
+        const char *output_path = 0;
+
+        if(argn >= 5 && strcmp(argv[3], "-o") == 0)
+        {
+            output_path = argv[4];
+        }
+        else if(argn == 3)
+        {
+            output_path_owned = default_asm_output_name(input_path);
+            if(!output_path_owned)
+            {
+                return 1;
+            }
+            output_path = output_path_owned;
+        }
+        else
+        {
+            printf("Usage: %s asm <filename> [-o output.s]\n", argv[0]);
+            return 1;
+        }
+
+        int asm_code = compile_to_asm_source(input_path, output_path);
+        if(asm_code == 0)
+        {
+            printf("ASM generated: %s\n", output_path);
+        }
+        free(output_path_owned);
+        return asm_code;
     }
 
     if(strcmp(argv[1], "ir") == 0)
@@ -147,6 +189,46 @@ int main(int argn, char** argv)
         if(build_code == 0)
         {
             printf("Build succeeded: %s\n", output_path);
+        }
+        free(output_path_owned);
+        return build_code;
+    }
+
+    if(strcmp(argv[1], "build-asm") == 0)
+    {
+        if(argn < 3)
+        {
+            printf("Usage: %s build-asm <filename> [-o output.exe]\n", argv[0]);
+            return 1;
+        }
+
+        const char *input_path = argv[2];
+        char *output_path_owned = 0;
+        const char *output_path = 0;
+
+        if(argn >= 5 && strcmp(argv[3], "-o") == 0)
+        {
+            output_path = argv[4];
+        }
+        else if(argn == 3)
+        {
+            output_path_owned = default_output_name(input_path);
+            if(!output_path_owned)
+            {
+                return 1;
+            }
+            output_path = output_path_owned;
+        }
+        else
+        {
+            printf("Usage: %s build-asm <filename> [-o output.exe]\n", argv[0]);
+            return 1;
+        }
+
+        int build_code = compile_asm_to_executable(input_path, output_path);
+        if(build_code == 0)
+        {
+            printf("ASM build succeeded: %s\n", output_path);
         }
         free(output_path_owned);
         return build_code;

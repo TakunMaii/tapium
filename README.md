@@ -16,9 +16,13 @@ $ make
 $ ./tapium examples/hello_world.tap
 $ ./tapium ir examples/hello_world.tap -o hello.ir
 $ ./tapium c examples/hello_world.tap -o hello.c
+$ ./tapium asm examples/hello_world.tap -o hello.s
+$ ./tapium build-asm examples/hello_world.tap -o hello_asm.exe
 $ ./tapium build examples/hello_world.tap -o hello.exe
 $ ./hello.exe
 ```
+
+> Current status: the ASM backend is Windows-focused and does not support region instructions (`{` / `}`) yet.
 
 ## Tutorials
 

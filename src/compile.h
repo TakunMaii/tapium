@@ -338,6 +338,31 @@ static inline char *default_c_output_name(const char *input_path)
     return output;
 }
 
+static inline char *default_asm_output_name(const char *input_path)
+{
+    const char *base = input_path;
+    for (const char *p = input_path; *p; p++) {
+        if (*p == '\\' || *p == '/') {
+            base = p + 1;
+        }
+    }
+
+    const char *dot = strrchr(base, '.');
+    size_t base_len = dot ? (size_t)(dot - base) : strlen(base);
+    if (base_len == 0) {
+        base_len = strlen(base);
+    }
+
+    char *output = (char*)malloc(base_len + 3);
+    if (!output) {
+        return NULL;
+    }
+
+    memcpy(output, base, base_len);
+    memcpy(output + base_len, ".s", 3);
+    return output;
+}
+
 static inline int ir_instruction_count(IRProgram *ir)
 {
     int count = 0;
@@ -578,7 +603,7 @@ static inline int emit_ir_c_program(const char *generated_c, IRProgram *ir)
     return 1;
 }
 
-static inline int compile_to_c_source(const char *input_path, const char *output_c_path)
+static inline int prepare_ir_from_input(const char *input_path, char **program_out, IRProgram **ir_out)
 {
     char *program = load_expanded_program(input_path);
     if (!program) {
@@ -601,17 +626,32 @@ static inline int compile_to_c_source(const char *input_path, const char *output
         return 1;
     }
     generate_ir_from_tokens(ir, tokens);
+
     IRInst *first_macro_call = 0;
     if(ir_has_unresolved_macro(ir, &first_macro_call))
     {
         printf(
-            "Build error at %s:%d:%d: unresolved macro call '%s' (likely recursive macro, IR backend requires inlining)\n",
+            "Build error at %s:%d:%d: unresolved macro call '%s' (likely recursive macro, backend requires inlining)\n",
             first_macro_call->source[0] ? first_macro_call->source : "<unknown>",
             first_macro_call->line,
             first_macro_call->column,
             first_macro_call->name
         );
         free(program);
+        return 1;
+    }
+
+    *program_out = program;
+    *ir_out = ir;
+    return 0;
+}
+
+static inline int compile_to_c_source(const char *input_path, const char *output_c_path)
+{
+    char *program = 0;
+    IRProgram *ir = 0;
+    if(prepare_ir_from_input(input_path, &program, &ir) != 0)
+    {
         return 1;
     }
 
@@ -622,6 +662,540 @@ static inline int compile_to_c_source(const char *input_path, const char *output
     }
 
     free(program);
+    return 0;
+}
+
+static inline void write_asm_string_literal(FILE *out, const char *text)
+{
+    fputc('"', out);
+    while(*text)
+    {
+        unsigned char c = (unsigned char)*text++;
+        switch(c)
+        {
+            case '\\': fputs("\\\\", out); break;
+            case '"': fputs("\\\"", out); break;
+            case '\n': fputs("\\n", out); break;
+            case '\r': fputs("\\r", out); break;
+            case '\t': fputs("\\t", out); break;
+            default:
+                if(c < 32 || c > 126)
+                {
+                    fprintf(out, "\\%03o", c);
+                }
+                else
+                {
+                    fputc(c, out);
+                }
+                break;
+        }
+    }
+    fputc('"', out);
+}
+
+static inline int ir_contains_region_ops(IRProgram *ir, IRInst **inst_out)
+{
+    IRInst *inst = ir->head;
+    while(inst)
+    {
+        if(inst->op == IR_REGION_PUSH || inst->op == IR_REGION_POP)
+        {
+            if(inst_out) *inst_out = inst;
+            return 1;
+        }
+        inst = inst->next;
+    }
+    return 0;
+}
+
+static inline int ir_contains_unknown_embed(IRProgram *ir, IRInst **inst_out)
+{
+    IRInst *inst = ir->head;
+    while(inst)
+    {
+        if(inst->op == IR_CALL_EMBED)
+        {
+            if(!embedded_name_to_c_func(inst->name))
+            {
+                if(inst_out) *inst_out = inst;
+                return 1;
+            }
+        }
+        inst = inst->next;
+    }
+    return 0;
+}
+
+static inline void emit_asm_pointer_bounds_check(FILE *out)
+{
+    fputs("    mov rax, qword ptr [rip + pointer]\n", out);
+    fputs("    cmp rax, 0\n", out);
+    fputs("    jl L_ERR_PTR\n", out);
+    fputs("    cmp rax, 1023\n", out);
+    fputs("    jg L_ERR_PTR\n", out);
+}
+
+static inline void emit_asm_resolve_num(FILE *out, int num, int use_stack_top)
+{
+    if(use_stack_top)
+    {
+        fputs("    mov rax, qword ptr [rip + tap_sp]\n", out);
+        fputs("    cmp rax, 0\n", out);
+        fputs("    jle L_ERR_STACK_UNDER\n", out);
+        fputs("    dec rax\n", out);
+        fputs("    lea rbx, [rip + tap_stack]\n", out);
+        fputs("    mov rdx, qword ptr [rbx + rax*8]\n", out);
+    }
+    else
+    {
+        fprintf(out, "    mov rdx, %d\n", num);
+    }
+}
+
+static inline void emit_asm_instruction(FILE *out, IRInst *inst, int string_id)
+{
+    switch(inst->op)
+    {
+        case IR_ADD:
+            emit_asm_resolve_num(out, inst->num, inst->num_using_stack_top);
+            emit_asm_pointer_bounds_check(out);
+            fputs("    mov rax, qword ptr [rip + pointer]\n", out);
+            fputs("    lea rbx, [rip + tape]\n", out);
+            fputs("    add qword ptr [rbx + rax*8], rdx\n", out);
+            break;
+        case IR_SUB:
+            emit_asm_resolve_num(out, inst->num, inst->num_using_stack_top);
+            emit_asm_pointer_bounds_check(out);
+            fputs("    mov rax, qword ptr [rip + pointer]\n", out);
+            fputs("    lea rbx, [rip + tape]\n", out);
+            fputs("    sub qword ptr [rbx + rax*8], rdx\n", out);
+            break;
+        case IR_MOVE_R:
+            emit_asm_resolve_num(out, inst->num, inst->num_using_stack_top);
+            fputs("    add qword ptr [rip + pointer], rdx\n", out);
+            emit_asm_pointer_bounds_check(out);
+            break;
+        case IR_MOVE_L:
+            emit_asm_resolve_num(out, inst->num, inst->num_using_stack_top);
+            fputs("    sub qword ptr [rip + pointer], rdx\n", out);
+            emit_asm_pointer_bounds_check(out);
+            break;
+        case IR_INPUT:
+            emit_asm_pointer_bounds_check(out);
+            if(inst->type == INTEGER)
+            {
+                fputs("    lea rcx, [rip + FMT_INT_IN]\n", out);
+                fputs("    mov rax, qword ptr [rip + pointer]\n", out);
+                fputs("    lea rbx, [rip + tape]\n", out);
+                fputs("    lea rdx, [rbx + rax*8]\n", out);
+                fputs("    call scanf\n", out);
+            }
+            else if(inst->type == STRING)
+            {
+                fputs("    mov rcx, 256\n", out);
+                fputs("    call malloc\n", out);
+                fputs("    test rax, rax\n", out);
+                fputs("    jz L_ERR_MALLOC\n", out);
+                fputs("    mov r8, rax\n", out);
+                fputs("    lea rcx, [rip + FMT_STR_IN]\n", out);
+                fputs("    mov rdx, r8\n", out);
+                fputs("    call scanf\n", out);
+                fputs("    mov rax, qword ptr [rip + pointer]\n", out);
+                fputs("    lea rbx, [rip + tape]\n", out);
+                fputs("    mov qword ptr [rbx + rax*8], r8\n", out);
+            }
+            else
+            {
+                fputs("    lea rcx, [rip + FMT_CHR_IN]\n", out);
+                fputs("    mov rax, qword ptr [rip + pointer]\n", out);
+                fputs("    lea rbx, [rip + tape]\n", out);
+                fputs("    lea rdx, [rbx + rax*8]\n", out);
+                fputs("    call scanf\n", out);
+            }
+            break;
+        case IR_OUTPUT:
+            emit_asm_pointer_bounds_check(out);
+            if(inst->type == INTEGER)
+            {
+                fputs("    lea rcx, [rip + FMT_INT_OUT]\n", out);
+                fputs("    mov rax, qword ptr [rip + pointer]\n", out);
+                fputs("    lea rbx, [rip + tape]\n", out);
+                fputs("    mov rdx, qword ptr [rbx + rax*8]\n", out);
+                fputs("    call printf\n", out);
+            }
+            else if(inst->type == STRING)
+            {
+                fputs("    lea rcx, [rip + FMT_STR_OUT]\n", out);
+                fputs("    mov rax, qword ptr [rip + pointer]\n", out);
+                fputs("    lea rbx, [rip + tape]\n", out);
+                fputs("    mov rdx, qword ptr [rbx + rax*8]\n", out);
+                fputs("    call printf\n", out);
+            }
+            else
+            {
+                fputs("    lea rcx, [rip + FMT_CHR_OUT]\n", out);
+                fputs("    mov rax, qword ptr [rip + pointer]\n", out);
+                fputs("    lea rbx, [rip + tape]\n", out);
+                fputs("    mov rdx, qword ptr [rbx + rax*8]\n", out);
+                fputs("    call printf\n", out);
+            }
+            break;
+        case IR_JUMP_IF_ZERO:
+            emit_asm_pointer_bounds_check(out);
+            fputs("    mov rax, qword ptr [rip + pointer]\n", out);
+            fputs("    lea rbx, [rip + tape]\n", out);
+            fputs("    cmp qword ptr [rbx + rax*8], 0\n", out);
+            if(inst->label == 0) fputs("    je L_END\n", out);
+            else fprintf(out, "    je L%d\n", inst->label);
+            break;
+        case IR_JUMP_IF_NONZERO:
+            emit_asm_pointer_bounds_check(out);
+            fputs("    mov rax, qword ptr [rip + pointer]\n", out);
+            fputs("    lea rbx, [rip + tape]\n", out);
+            fputs("    cmp qword ptr [rbx + rax*8], 0\n", out);
+            if(inst->label == 0) fputs("    jne L_END\n", out);
+            else fprintf(out, "    jne L%d\n", inst->label);
+            break;
+        case IR_TUPLE_BEGIN:
+            emit_asm_resolve_num(out, inst->num, inst->num_using_stack_top);
+            fputs("    mov rax, qword ptr [rip + tuple_sp]\n", out);
+            fputs("    cmp rax, 128\n", out);
+            fputs("    jge L_ERR_TUPLE_OVER\n", out);
+            fputs("    lea rbx, [rip + tuple_stack]\n", out);
+            fputs("    mov qword ptr [rbx + rax*8], rdx\n", out);
+            fputs("    inc qword ptr [rip + tuple_sp]\n", out);
+            fputs("    cmp rdx, 0\n", out);
+            if(inst->label == 0) fputs("    jle L_END\n", out);
+            else fprintf(out, "    jle L%d\n", inst->label);
+            break;
+        case IR_TUPLE_END:
+            fputs("    mov rax, qword ptr [rip + tuple_sp]\n", out);
+            fputs("    cmp rax, 0\n", out);
+            fputs("    jle L_ERR_TUPLE_UNDER\n", out);
+            fputs("    dec rax\n", out);
+            fputs("    lea rbx, [rip + tuple_stack]\n", out);
+            fputs("    mov rdx, qword ptr [rbx + rax*8]\n", out);
+            fputs("    dec rdx\n", out);
+            fputs("    mov qword ptr [rbx + rax*8], rdx\n", out);
+            fputs("    cmp rdx, 0\n", out);
+            if(inst->label == 0) fputs("    jne L_END\n", out);
+            else fprintf(out, "    jne L%d\n", inst->label);
+            fputs("    mov qword ptr [rip + tuple_sp], rax\n", out);
+            break;
+        case IR_REGION_PUSH:
+        case IR_REGION_POP:
+            fputs("    jmp L_ERR_REGION_UNSUPPORTED\n", out);
+            break;
+        case IR_NEW_STRING:
+            emit_asm_pointer_bounds_check(out);
+            fprintf(out, "    mov rcx, %zu\n", inst->text ? strlen(inst->text) + 1 : (size_t)1);
+            fputs("    call malloc\n", out);
+            fputs("    test rax, rax\n", out);
+            fputs("    jz L_ERR_MALLOC\n", out);
+            fputs("    mov r8, rax\n", out);
+            fputs("    mov rcx, r8\n", out);
+            fprintf(out, "    lea rdx, [rip + STR_%d]\n", string_id);
+            fputs("    call strcpy\n", out);
+            fputs("    mov rax, qword ptr [rip + pointer]\n", out);
+            fputs("    lea rbx, [rip + tape]\n", out);
+            fputs("    mov qword ptr [rbx + rax*8], r8\n", out);
+            break;
+        case IR_CALL_EMBED: {
+            const char *name = inst->name;
+            if(strcmp(name, "rand") == 0)
+            {
+                fputs("    call rand\n", out);
+                emit_asm_pointer_bounds_check(out);
+                fputs("    movsx rdx, eax\n", out);
+                fputs("    mov rax, qword ptr [rip + pointer]\n", out);
+                fputs("    lea rbx, [rip + tape]\n", out);
+                fputs("    mov qword ptr [rbx + rax*8], rdx\n", out);
+            }
+            else if(strcmp(name, "push") == 0)
+            {
+                fputs("    mov rax, qword ptr [rip + tap_sp]\n", out);
+                fputs("    cmp rax, 1024\n", out);
+                fputs("    jge L_ERR_STACK_OVER\n", out);
+                emit_asm_pointer_bounds_check(out);
+                fputs("    lea rbx, [rip + tape]\n", out);
+                fputs("    mov rcx, qword ptr [rip + pointer]\n", out);
+                fputs("    mov rdx, qword ptr [rbx + rcx*8]\n", out);
+                fputs("    lea rbx, [rip + tap_stack]\n", out);
+                fputs("    mov qword ptr [rbx + rax*8], rdx\n", out);
+                fputs("    inc qword ptr [rip + tap_sp]\n", out);
+            }
+            else if(strcmp(name, "pop") == 0 || strcmp(name, "peek") == 0)
+            {
+                fputs("    mov rax, qword ptr [rip + tap_sp]\n", out);
+                fputs("    cmp rax, 0\n", out);
+                fputs("    jle L_ERR_STACK_UNDER\n", out);
+                fputs("    dec rax\n", out);
+                fputs("    lea rbx, [rip + tap_stack]\n", out);
+                fputs("    mov rdx, qword ptr [rbx + rax*8]\n", out);
+                emit_asm_pointer_bounds_check(out);
+                fputs("    mov rcx, qword ptr [rip + pointer]\n", out);
+                fputs("    lea rbx, [rip + tape]\n", out);
+                fputs("    mov qword ptr [rbx + rcx*8], rdx\n", out);
+                if(strcmp(name, "pop") == 0)
+                {
+                    fputs("    mov qword ptr [rip + tap_sp], rax\n", out);
+                }
+            }
+            else if(strcmp(name, "mem") == 0)
+            {
+                fputs("    mov rax, qword ptr [rip + tap_sp]\n", out);
+                fputs("    cmp rax, 0\n", out);
+                fputs("    jle L_ERR_STACK_UNDER\n", out);
+                fputs("    dec rax\n", out);
+                fputs("    lea rbx, [rip + tap_stack]\n", out);
+                fputs("    mov rcx, qword ptr [rbx + rax*8]\n", out);
+                fputs("    cmp rcx, 0\n", out);
+                fputs("    jle L_ERR_MEM_SIZE\n", out);
+                fputs("    call malloc\n", out);
+                fputs("    test rax, rax\n", out);
+                fputs("    jz L_ERR_MALLOC\n", out);
+                emit_asm_pointer_bounds_check(out);
+                fputs("    mov rcx, qword ptr [rip + pointer]\n", out);
+                fputs("    lea rbx, [rip + tape]\n", out);
+                fputs("    mov qword ptr [rbx + rcx*8], rax\n", out);
+            }
+            else if(strcmp(name, "free") == 0)
+            {
+                emit_asm_pointer_bounds_check(out);
+                fputs("    mov rax, qword ptr [rip + pointer]\n", out);
+                fputs("    lea rbx, [rip + tape]\n", out);
+                fputs("    mov rcx, qword ptr [rbx + rax*8]\n", out);
+                fputs("    call free\n", out);
+            }
+            else
+            {
+                int is_div = strcmp(name, "div") == 0;
+                int is_add = strcmp(name, "add") == 0;
+                int is_sub = strcmp(name, "sub") == 0;
+                int is_mul = strcmp(name, "mul") == 0;
+                int is_eq = strcmp(name, "eq") == 0;
+                int is_ineq = strcmp(name, "ineq") == 0;
+                int is_gt = strcmp(name, "greater") == 0;
+                int is_lt = strcmp(name, "less") == 0;
+                int is_ge = strcmp(name, "greater_eq") == 0;
+                int is_le = strcmp(name, "less_eq") == 0;
+                fputs("    mov rax, qword ptr [rip + tap_sp]\n", out);
+                fputs("    cmp rax, 0\n", out);
+                fputs("    jle L_ERR_STACK_UNDER\n", out);
+                fputs("    dec rax\n", out);
+                fputs("    lea rbx, [rip + tap_stack]\n", out);
+                fputs("    mov rdx, qword ptr [rbx + rax*8]\n", out);
+                emit_asm_pointer_bounds_check(out);
+                fputs("    mov rcx, qword ptr [rip + pointer]\n", out);
+                fputs("    lea rbx, [rip + tape]\n", out);
+                fputs("    mov rax, qword ptr [rbx + rcx*8]\n", out);
+                if(is_add) fputs("    add rax, rdx\n", out);
+                else if(is_sub) fputs("    sub rax, rdx\n", out);
+                else if(is_mul) fputs("    imul rax, rdx\n", out);
+                else if(is_div)
+                {
+                    fputs("    mov r9, rdx\n", out);
+                    fputs("    cmp r9, 0\n", out);
+                    fputs("    je L_ERR_DIV_ZERO\n", out);
+                    fputs("    cqo\n", out);
+                    fputs("    idiv r9\n", out);
+                }
+                else
+                {
+                    fputs("    cmp rax, rdx\n", out);
+                    if(is_eq) fputs("    sete al\n", out);
+                    else if(is_ineq) fputs("    setne al\n", out);
+                    else if(is_gt) fputs("    setg al\n", out);
+                    else if(is_lt) fputs("    setl al\n", out);
+                    else if(is_ge) fputs("    setge al\n", out);
+                    else if(is_le) fputs("    setle al\n", out);
+                    else fputs("    jmp L_ERR_UNKNOWN_EMBED\n", out);
+                    fputs("    movzx rax, al\n", out);
+                }
+                fputs("    mov qword ptr [rbx + rcx*8], rax\n", out);
+            }
+        } break;
+        case IR_CALL_MACRO:
+            fputs("    jmp L_ERR_UNRESOLVED_MACRO\n", out);
+            break;
+    }
+}
+
+static inline int emit_ir_asm_program(const char *output_asm_path, IRProgram *ir)
+{
+    FILE *out = fopen(output_asm_path, "wb");
+    if(!out)
+    {
+        perror("Failed to create asm file");
+        return 0;
+    }
+
+    fputs(".intel_syntax noprefix\n", out);
+    fputs(".extern printf\n", out);
+    fputs(".extern scanf\n", out);
+    fputs(".extern malloc\n", out);
+    fputs(".extern free\n", out);
+    fputs(".extern rand\n", out);
+    fputs(".extern strcpy\n", out);
+    fputs(".extern exit\n\n", out);
+
+    fputs(".section .rdata,\"dr\"\n", out);
+    fputs("FMT_INT_IN: .asciz \"%lld\"\n", out);
+    fputs("FMT_STR_IN: .asciz \"%255s\"\n", out);
+    fputs("FMT_CHR_IN: .asciz \"%c\"\n", out);
+    fputs("FMT_INT_OUT: .asciz \"%lld\"\n", out);
+    fputs("FMT_STR_OUT: .asciz \"%s\"\n", out);
+    fputs("FMT_CHR_OUT: .asciz \"%c\"\n", out);
+    fputs("FMT_ERR: .asciz \"Runtime error: %s\\n\"\n", out);
+    fputs("ERR_PTR: .asciz \"pointer out of tape bounds\"\n", out);
+    fputs("ERR_STACK_UNDER: .asciz \"stack underflow\"\n", out);
+    fputs("ERR_STACK_OVER: .asciz \"stack overflow\"\n", out);
+    fputs("ERR_TUPLE_OVER: .asciz \"tuple nesting too deep\"\n", out);
+    fputs("ERR_TUPLE_UNDER: .asciz \"tuple stack underflow\"\n", out);
+    fputs("ERR_MALLOC: .asciz \"malloc failed\"\n", out);
+    fputs("ERR_DIV_ZERO: .asciz \"division by zero\"\n", out);
+    fputs("ERR_MEM_SIZE: .asciz \"mem size must be positive\"\n", out);
+    fputs("ERR_REGION: .asciz \"region ops not yet supported in asm backend\"\n", out);
+    fputs("ERR_UNRES_MACRO: .asciz \"unresolved macro in asm backend\"\n", out);
+    fputs("ERR_UNKNOWN_EMBED: .asciz \"unknown embedded function in asm backend\"\n", out);
+
+    int str_id = 0;
+    IRInst *inst = ir->head;
+    while(inst)
+    {
+        if(inst->op == IR_NEW_STRING)
+        {
+            fprintf(out, "STR_%d: .asciz ", str_id);
+            write_asm_string_literal(out, inst->text ? inst->text : "");
+            fputc('\n', out);
+            str_id++;
+        }
+        inst = inst->next;
+    }
+
+    fputs("\n.section .bss\n", out);
+    fputs("    .align 8\n", out);
+    fputs("tape: .zero 8192\n", out);
+    fputs("tap_stack: .zero 8192\n", out);
+    fputs("pointer: .zero 8\n", out);
+    fputs("tap_sp: .zero 8\n", out);
+    fputs("tuple_stack: .zero 1024\n", out);
+    fputs("tuple_sp: .zero 8\n\n", out);
+
+    fputs(".text\n", out);
+    fputs(".globl main\n", out);
+    fputs("main:\n", out);
+    fputs("    push rbp\n", out);
+    fputs("    mov rbp, rsp\n", out);
+    fputs("    sub rsp, 40\n", out);
+    fputs("    mov qword ptr [rip + pointer], 0\n", out);
+    fputs("    mov qword ptr [rip + tap_sp], 0\n", out);
+    fputs("    mov qword ptr [rip + tuple_sp], 0\n", out);
+
+    int string_index = 0;
+    inst = ir->head;
+    while(inst)
+    {
+        int label = ir_label_for_token(ir, inst->origin, inst->scope);
+        if(label > 0)
+        {
+            fprintf(out, "L%d:\n", label);
+        }
+        emit_asm_instruction(out, inst, string_index);
+        if(inst->op == IR_NEW_STRING)
+        {
+            string_index++;
+        }
+        inst = inst->next;
+    }
+
+    fputs("L_END:\n", out);
+    fputs("    xor eax, eax\n", out);
+    fputs("    add rsp, 40\n", out);
+    fputs("    pop rbp\n", out);
+    fputs("    ret\n\n", out);
+
+    fputs("L_ERR_PTR:\n    lea rcx, [rip + FMT_ERR]\n    lea rdx, [rip + ERR_PTR]\n    call printf\n    mov ecx, 1\n    call exit\n", out);
+    fputs("L_ERR_STACK_UNDER:\n    lea rcx, [rip + FMT_ERR]\n    lea rdx, [rip + ERR_STACK_UNDER]\n    call printf\n    mov ecx, 1\n    call exit\n", out);
+    fputs("L_ERR_STACK_OVER:\n    lea rcx, [rip + FMT_ERR]\n    lea rdx, [rip + ERR_STACK_OVER]\n    call printf\n    mov ecx, 1\n    call exit\n", out);
+    fputs("L_ERR_TUPLE_OVER:\n    lea rcx, [rip + FMT_ERR]\n    lea rdx, [rip + ERR_TUPLE_OVER]\n    call printf\n    mov ecx, 1\n    call exit\n", out);
+    fputs("L_ERR_TUPLE_UNDER:\n    lea rcx, [rip + FMT_ERR]\n    lea rdx, [rip + ERR_TUPLE_UNDER]\n    call printf\n    mov ecx, 1\n    call exit\n", out);
+    fputs("L_ERR_MALLOC:\n    lea rcx, [rip + FMT_ERR]\n    lea rdx, [rip + ERR_MALLOC]\n    call printf\n    mov ecx, 1\n    call exit\n", out);
+    fputs("L_ERR_DIV_ZERO:\n    lea rcx, [rip + FMT_ERR]\n    lea rdx, [rip + ERR_DIV_ZERO]\n    call printf\n    mov ecx, 1\n    call exit\n", out);
+    fputs("L_ERR_MEM_SIZE:\n    lea rcx, [rip + FMT_ERR]\n    lea rdx, [rip + ERR_MEM_SIZE]\n    call printf\n    mov ecx, 1\n    call exit\n", out);
+    fputs("L_ERR_REGION_UNSUPPORTED:\n    lea rcx, [rip + FMT_ERR]\n    lea rdx, [rip + ERR_REGION]\n    call printf\n    mov ecx, 1\n    call exit\n", out);
+    fputs("L_ERR_UNRESOLVED_MACRO:\n    lea rcx, [rip + FMT_ERR]\n    lea rdx, [rip + ERR_UNRES_MACRO]\n    call printf\n    mov ecx, 1\n    call exit\n", out);
+    fputs("L_ERR_UNKNOWN_EMBED:\n    lea rcx, [rip + FMT_ERR]\n    lea rdx, [rip + ERR_UNKNOWN_EMBED]\n    call printf\n    mov ecx, 1\n    call exit\n", out);
+
+    fclose(out);
+    return 1;
+}
+
+static inline int compile_to_asm_source(const char *input_path, const char *output_asm_path)
+{
+    char *program = 0;
+    IRProgram *ir = 0;
+    if(prepare_ir_from_input(input_path, &program, &ir) != 0)
+    {
+        return 1;
+    }
+
+    IRInst *region_inst = 0;
+    if(ir_contains_region_ops(ir, &region_inst))
+    {
+        printf(
+            "Build error at %s:%d:%d: region ops are not supported yet in asm backend\n",
+            region_inst->source[0] ? region_inst->source : "<unknown>",
+            region_inst->line,
+            region_inst->column
+        );
+        free(program);
+        return 1;
+    }
+
+    IRInst *unknown_embed = 0;
+    if(ir_contains_unknown_embed(ir, &unknown_embed))
+    {
+        printf(
+            "Build error at %s:%d:%d: unknown embedded function '%s' in asm backend\n",
+            unknown_embed->source[0] ? unknown_embed->source : "<unknown>",
+            unknown_embed->line,
+            unknown_embed->column,
+            unknown_embed->name
+        );
+        free(program);
+        return 1;
+    }
+
+    if(!emit_ir_asm_program(output_asm_path, ir))
+    {
+        free(program);
+        return 1;
+    }
+
+    free(program);
+    return 0;
+}
+
+static inline int compile_asm_to_executable(const char *input_path, const char *output_path)
+{
+    const char *generated_asm = "__tapium_build_tmp.s";
+    int asm_code = compile_to_asm_source(input_path, generated_asm);
+    if(asm_code != 0)
+    {
+        return asm_code;
+    }
+
+    char command[1024];
+    snprintf(command, sizeof(command), "gcc \"%s\" -o \"%s\"", generated_asm, output_path);
+    int compile_code = system(command);
+    remove(generated_asm);
+
+    if(compile_code != 0)
+    {
+        printf("Build failed while assembling generated source.\n");
+        return 1;
+    }
     return 0;
 }
 
