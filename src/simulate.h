@@ -20,6 +20,7 @@ struct Region
 
 Region *region_stack[1024];
 int region_pointer = 0;
+Token *runtime_current_token = NULL;
 
 #define REGION (region_stack[region_pointer-1])
 #define TAPE (REGION->tape)
@@ -27,14 +28,75 @@ int region_pointer = 0;
 #define STACK (REGION->stack)
 #define STPTR (REGION->stack_pointer)
 
+void runtime_error(const char *message)
+{
+    if(runtime_current_token)
+    {
+        printf(
+            "Runtime error at %s:%d:%d: %s\n",
+            runtime_current_token->source[0] ? runtime_current_token->source : "<unknown>",
+            runtime_current_token->line,
+            runtime_current_token->column,
+            message
+        );
+    }
+    else
+    {
+        printf("Runtime error: %s\n", message);
+    }
+    exit(1);
+}
+
+void ensure_pointer_in_bounds(int pointer)
+{
+    if(pointer < 0 || pointer >= TAPE_LENGTH)
+    {
+        runtime_error("pointer out of tape bounds");
+    }
+}
+
+void ensure_stack_not_empty()
+{
+    if(STPTR <= 0)
+    {
+        runtime_error("stack underflow");
+    }
+}
+
+void ensure_stack_not_full()
+{
+    if(STPTR >= TAPE_LENGTH)
+    {
+        runtime_error("stack overflow");
+    }
+}
+
+int resolve_num(Token *token)
+{
+    if(token->num_using_stack_top)
+    {
+        ensure_stack_not_empty();
+        return STACK[STPTR-1];
+    }
+    return token->num;
+}
+
 void pushRegionWith(int num)
 {
+    if(region_pointer >= 1024)
+    {
+        runtime_error("region stack overflow");
+    }
+    if(num < 0)
+    {
+        runtime_error("region copy length can not be negative");
+    }
     region_stack[region_pointer++] = (Region*)malloc(sizeof(Region));
     region_stack[region_pointer-1]->pointer = 0;
-    memset(region_stack[region_pointer-1]->tape, 0, TAPE_LENGTH);
+    memset(region_stack[region_pointer-1]->tape, 0, sizeof(region_stack[region_pointer-1]->tape));
 
     region_stack[region_pointer-1]->stack_pointer = 0;
-    memset(region_stack[region_pointer-1]->stack, 0, TAPE_LENGTH);
+    memset(region_stack[region_pointer-1]->stack, 0, sizeof(region_stack[region_pointer-1]->stack));
 
     if(num > 0)
     {
@@ -48,6 +110,8 @@ void pushRegionWith(int num)
             counter<num;
             i++, counter++)
         {
+            ensure_pointer_in_bounds(i);
+            ensure_pointer_in_bounds(counter);
             region_stack[region_pointer-1]->tape[counter] = region_stack[region_pointer-2]->tape[i];
         }
     }
@@ -55,6 +119,14 @@ void pushRegionWith(int num)
 
 void popRegionWith(int num)
 {
+    if(region_pointer <= 0)
+    {
+        runtime_error("region stack underflow");
+    }
+    if(num < 0)
+    {
+        runtime_error("region copy length can not be negative");
+    }
     if(num > 0)
     {
         if(region_pointer <= 1)
@@ -69,6 +141,8 @@ void popRegionWith(int num)
             counter<num;
             i++, j++, counter++)
         {
+            ensure_pointer_in_bounds(i);
+            ensure_pointer_in_bounds(j);
             region_stack[region_pointer-1]->tape[j] = region_stack[region_pointer-2]->tape[i];
         }
     }
@@ -83,6 +157,7 @@ void simulate(Token *token)
     int tuple_times_pointer = 0;
 
     while (token) {
+        runtime_current_token = token;
         switch (token->kind) {
             case NULLTOK: {
                 token = token->next;
@@ -90,43 +165,35 @@ void simulate(Token *token)
             case PLUS: {
                 long long *tape = region_stack[region_pointer-1]->tape;
                 int pointer = region_stack[region_pointer-1]->pointer;
-                int num = token->num_using_stack_top ? 
-                    region_stack[region_pointer-1]->stack[region_stack[region_pointer-1]->stack_pointer-1]
-                    : token->num;
+                ensure_pointer_in_bounds(pointer);
+                int num = resolve_num(token);
                 tape[pointer] += num;
                 token = token->next;
             } break;
             case MINUS: {
                 long long *tape = region_stack[region_pointer-1]->tape;
                 int pointer = region_stack[region_pointer-1]->pointer;
-                int num = token->num_using_stack_top ? 
-                    region_stack[region_pointer-1]->stack[region_stack[region_pointer-1]->stack_pointer-1]
-                    : token->num;
+                ensure_pointer_in_bounds(pointer);
+                int num = resolve_num(token);
                 tape[pointer] -= num;
                 token = token->next;
             } break;
             case RIGHT: {
-                int num = token->num_using_stack_top ? 
-                    region_stack[region_pointer-1]->stack[region_stack[region_pointer-1]->stack_pointer-1]
-                    : token->num;
+                int num = resolve_num(token);
                 region_stack[region_pointer-1]->pointer += num;
+                ensure_pointer_in_bounds(region_stack[region_pointer-1]->pointer);
                 token = token->next;
             } break;
             case LEFT: {
-                int num = token->num_using_stack_top ? 
-                    region_stack[region_pointer-1]->stack[region_stack[region_pointer-1]->stack_pointer-1]
-                    : token->num;
+                int num = resolve_num(token);
                 region_stack[region_pointer-1]->pointer -= num;
-                if(region_stack[region_pointer-1]->pointer<0)
-                {
-                    printf("Pointer too left!! %d", region_stack[region_pointer-1]->pointer);
-                    exit(1);
-                }
+                ensure_pointer_in_bounds(region_stack[region_pointer-1]->pointer);
                 token = token->next;
             } break;
             case INPUT: {
                 long long *tape = region_stack[region_pointer-1]->tape;
                 int pointer = region_stack[region_pointer-1]->pointer;
+                ensure_pointer_in_bounds(pointer);
                 if(token->type == INTEGER)
                 {
                     scanf("%lld", &tape[pointer]);
@@ -146,6 +213,7 @@ void simulate(Token *token)
             case OUTPUT: {
                 long long *tape = region_stack[region_pointer-1]->tape;
                 int pointer = region_stack[region_pointer-1]->pointer;
+                ensure_pointer_in_bounds(pointer);
                 if(token->type == INTEGER)
                 {
                     printf("%lld", tape[pointer]);
@@ -162,10 +230,12 @@ void simulate(Token *token)
             } break;
             case START_TUPLE: {
                 // store tuple time num
-                tuple_times_stack[tuple_times_pointer++] = token->pair->num_using_stack_top ? 
-                    region_stack[region_pointer-1]->stack[region_stack[region_pointer-1]->stack_pointer-1]
-                    :token->pair->num;
-                if(token->pair->num <= 0)// not run the tuple
+                if(tuple_times_pointer >= 128)
+                {
+                    runtime_error("tuple nesting too deep");
+                }
+                tuple_times_stack[tuple_times_pointer++] = resolve_num(token->pair);
+                if(tuple_times_stack[tuple_times_pointer-1] <= 0)// not run the tuple
                 {
                     tuple_times_pointer--;
                     token = token->pair;
@@ -173,6 +243,10 @@ void simulate(Token *token)
                 token = token->next;
             } break;
             case END_TUPLE: {
+                if(tuple_times_pointer <= 0)
+                {
+                    runtime_error("tuple stack underflow");
+                }
                 if(--tuple_times_stack[tuple_times_pointer - 1])
                 {
                     // jump to end start of the tuple
@@ -188,6 +262,7 @@ void simulate(Token *token)
             case WHEN: {
                 long long *tape = region_stack[region_pointer-1]->tape;
                 int pointer = region_stack[region_pointer-1]->pointer;
+                ensure_pointer_in_bounds(pointer);
                 if(!tape[pointer])
                 {
                     token = token->pair->next;
@@ -197,6 +272,7 @@ void simulate(Token *token)
             case END: {
                 long long *tape = region_stack[region_pointer-1]->tape;
                 int pointer = region_stack[region_pointer-1]->pointer;
+                ensure_pointer_in_bounds(pointer);
                 if(tape[pointer])
                 {
                     token = token->pair->next;
@@ -215,6 +291,7 @@ void simulate(Token *token)
             case NEW_STRING: {
                 long long *tape = region_stack[region_pointer-1]->tape;
                 int pointer = region_stack[region_pointer-1]->pointer;
+                ensure_pointer_in_bounds(pointer);
                 tape[pointer] = (long long)token->ptr;
                 token = token->next;
             } break;

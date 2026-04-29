@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <string.h>
 #include "hashmap.h"
 #include "file.h"
 
@@ -38,6 +39,7 @@ enum Type
 };
 
 typedef struct Token Token;
+#define TOKEN_SOURCE_MAX 260
 struct Token
 {
     Token *next;
@@ -50,6 +52,9 @@ struct Token
     Type type;
 
     char macro_name[64];
+    char source[TOKEN_SOURCE_MAX];
+    int line;
+    int column;
 
     void (*embedded_func)();
 
@@ -65,7 +70,88 @@ Token *newToken(TokenType kind)
     token->num_using_stack_top = false;
     token->kind = kind;
     token->type = CHAR;
+    token->source[0] = '\0';
+    token->line = 0;
+    token->column = 0;
     return token;
+}
+
+Token *newTokenAt(TokenType kind, const char *source, int line, int column)
+{
+    Token *token = newToken(kind);
+    if(source)
+    {
+        snprintf(token->source, TOKEN_SOURCE_MAX, "%s", source);
+    }
+    token->line = line;
+    token->column = column;
+    return token;
+}
+
+void compute_line_col(
+    const char *program_head,
+    const char *program_cur,
+    int start_line,
+    int start_col,
+    int *line,
+    int *col
+)
+{
+    *line = start_line;
+    *col = start_col;
+    for(const char *p = program_head; p < program_cur; p++)
+    {
+        if(*p == '\n')
+        {
+            (*line)++;
+            *col = 1;
+        }
+        else
+        {
+            (*col)++;
+        }
+    }
+}
+
+void parse_error(
+    const char *source,
+    const char *program_head,
+    const char *program_cur,
+    int start_line,
+    int start_col,
+    const char *message
+)
+{
+    int line, col;
+    compute_line_col(program_head, program_cur, start_line, start_col, &line, &col);
+    printf("Parse error at %s:%d:%d: %s\n", source ? source : "<unknown>", line, col, message);
+    exit(1);
+}
+
+void parse_error_token(Token *token, const char *message)
+{
+    printf(
+        "Parse error at %s:%d:%d: %s\n",
+        token->source[0] ? token->source : "<unknown>",
+        token->line,
+        token->column,
+        message
+    );
+    exit(1);
+}
+
+Token *newTokenAtCursor(
+    TokenType kind,
+    const char *source,
+    const char *program_head,
+    const char *program_cur,
+    int start_line,
+    int start_col
+)
+{
+    int line, col;
+    compute_line_col(program_head, program_cur, start_line, start_col, &line, &col);
+    return newTokenAt(kind, source, line, col);
 }
 
 void printTokens(Token *token)
@@ -112,8 +198,7 @@ int seek_num(char *program, Token *token)
         counter++;
         if(*program != '\'')
         {
-            printf("Wrong char\n");
-            exit(1);
+            return -1;
         }
         program++;
         counter++;// jump '
@@ -156,15 +241,20 @@ int seek_identifier(char *program, char *identifer)
         counter++;
         if(counter > 64)
         {
-            printf("identifer too long(> 64)\n");
-            exit(1);
+            return -1;
         }
     }
     identifer[pointer++] = '\0';
     return counter;
 }
 
-Token* tokenize(char *program, int *consumed_length)
+Token* tokenize_internal(
+    char *program,
+    int *consumed_length,
+    const char *source,
+    int start_line,
+    int start_col
+)
 {
     char *program_head = program;
 
@@ -173,14 +263,19 @@ Token* tokenize(char *program, int *consumed_length)
     Token *tuple_stack[1024];
     int tuple_pointer = 0;
 
-    Token *token = newToken(NULLTOK), *head = token;
+    Token *token = newTokenAt(NULLTOK, source, start_line, start_col), *head = token;
     while (*program) {
         if(is_identifier(*program))
         {
             // call macro
-            token->next = newToken(MACRO);
+            token->next = newTokenAtCursor(MACRO, source, program_head, program, start_line, start_col);
             token = token->next;
-            program += seek_identifier(program, token->macro_name);
+            int len = seek_identifier(program, token->macro_name);
+            if(len < 0)
+            {
+                parse_error(source, program_head, program, start_line, start_col, "identifier too long (>64)");
+            }
+            program += len;
             continue;
         }
 
@@ -194,23 +289,38 @@ Token* tokenize(char *program, int *consumed_length)
                 program++;
                 char include_path[128];
                 int include_length = 0;
-                while(*program != '\n')
+                while(*program != '\n' && *program != '\0')
                 {
+                    if(include_length >= 127)
+                    {
+                        parse_error(source, program_head, program, start_line, start_col, "include path too long (>127)");
+                    }
                     include_path[include_length++] = *(program++);
+                }
+                while(include_length > 0 && (include_path[include_length-1] == '\r' || include_path[include_length-1] == ' '))
+                {
+                    include_length--;
                 }
                 include_path[include_length] = '\0';
                 long include_program_length;
                 int include_token_length;
                 char *include_program = read_file(include_path, &include_program_length);
-                Token *include_token = tokenize(include_program, &include_token_length);
+                if(!include_program)
+                {
+                    parse_error(source, program_head, program, start_line, start_col, "failed to read include file");
+                }
+                Token *include_token = tokenize_internal(include_program, &include_token_length, include_path, 1, 1);
                 Token *include_tail = include_token;
                 while (include_tail->next) {
                     include_tail = include_tail->next;
                 }
                 include_tail->next = head;
                 head = include_token;
+                free(include_program);
             } break;
             case ' ':
+            case '\t':
+            case '\r':
             case '\n': {
                 program++;
             } break;
@@ -221,31 +331,51 @@ Token* tokenize(char *program, int *consumed_length)
                 program++;
             } break;
             case '+': {
-                token->next = newToken(PLUS);
+                token->next = newTokenAtCursor(PLUS, source, program_head, program, start_line, start_col);
                 token = token->next;
                 program++;
-                program += seek_num(program, token);
+                int len = seek_num(program, token);
+                if(len < 0)
+                {
+                    parse_error(source, program_head, program, start_line, start_col, "invalid char literal");
+                }
+                program += len;
             } break;
             case '-': {
-                token->next = newToken(MINUS);
+                token->next = newTokenAtCursor(MINUS, source, program_head, program, start_line, start_col);
                 token = token->next;
                 program++;
-                program += seek_num(program, token);
+                int len = seek_num(program, token);
+                if(len < 0)
+                {
+                    parse_error(source, program_head, program, start_line, start_col, "invalid char literal");
+                }
+                program += len;
             } break;
             case '>': {
-                token->next = newToken(RIGHT);
+                token->next = newTokenAtCursor(RIGHT, source, program_head, program, start_line, start_col);
                 token = token->next;
                 program++;
-                program += seek_num(program, token);
+                int len = seek_num(program, token);
+                if(len < 0)
+                {
+                    parse_error(source, program_head, program, start_line, start_col, "invalid char literal");
+                }
+                program += len;
            } break;
             case '<': {
-                token->next = newToken(LEFT);
+                token->next = newTokenAtCursor(LEFT, source, program_head, program, start_line, start_col);
                 token = token->next;
                 program++;
-                program += seek_num(program, token);
+                int len = seek_num(program, token);
+                if(len < 0)
+                {
+                    parse_error(source, program_head, program, start_line, start_col, "invalid char literal");
+                }
+                program += len;
             } break;
             case ',': {
-                token->next = newToken(INPUT);
+                token->next = newTokenAtCursor(INPUT, source, program_head, program, start_line, start_col);
                 token = token->next;
                 program++;
                 if(*program == '%')
@@ -260,7 +390,7 @@ Token* tokenize(char *program, int *consumed_length)
                 }
             } break;
             case '.': {
-                token->next = newToken(OUTPUT);
+                token->next = newTokenAtCursor(OUTPUT, source, program_head, program, start_line, start_col);
                 token = token->next;
                 program++;
                 if(*program == '%')
@@ -275,64 +405,84 @@ Token* tokenize(char *program, int *consumed_length)
                 }
             } break;
             case '(': {
-                token->next = newToken(START_TUPLE);
+                token->next = newTokenAtCursor(START_TUPLE, source, program_head, program, start_line, start_col);
                 token = token->next;
                 tuple_stack[tuple_pointer++] = token;
                 program++;
             } break;
             case ')': {
-                token->next = newToken(END_TUPLE);
+                token->next = newTokenAtCursor(END_TUPLE, source, program_head, program, start_line, start_col);
                 token = token->next;
                 if(tuple_pointer== 0)
                 {
-                    printf("Error )\n");
-                    exit(1);
+                    parse_error(source, program_head, program, start_line, start_col, "unexpected ')'");
                 }
                 token->pair = tuple_stack[--tuple_pointer];
                 token->pair->pair = token;
                 program++;
-                program+=seek_num(program, token);
+                int len = seek_num(program, token);
+                if(len < 0)
+                {
+                    parse_error(source, program_head, program, start_line, start_col, "invalid char literal");
+                }
+                program+=len;
             } break;
             case '[': {
-                token->next = newToken(WHEN);
+                token->next = newTokenAtCursor(WHEN, source, program_head, program, start_line, start_col);
                 token = token->next;
                 pair_stack[pair_pointer++] = token;
                 program++;
             } break;
             case ']': {
-                token->next = newToken(END);
+                token->next = newTokenAtCursor(END, source, program_head, program, start_line, start_col);
                 token = token->next;
                 if(pair_pointer == 0)
                 {
-                    printf("Error ]\n");
-                    exit(1);
+                    parse_error(source, program_head, program, start_line, start_col, "unexpected ']'");
                 }
                 token->pair = pair_stack[--pair_pointer];
                 token->pair->pair = token;
                 program++;
             } break;
             case '{': {
-                token->next = newToken(START_REGION);
+                token->next = newTokenAtCursor(START_REGION, source, program_head, program, start_line, start_col);
                 token = token->next;
                 program++;
-                program += seek_num(program, token);
+                int len = seek_num(program, token);
+                if(len < 0)
+                {
+                    parse_error(source, program_head, program, start_line, start_col, "invalid char literal");
+                }
+                program += len;
             } break;
             case '}': {
-                token->next = newToken(END_REGION);
+                token->next = newTokenAtCursor(END_REGION, source, program_head, program, start_line, start_col);
                 token = token->next;
                 program++;
-                program += seek_num(program, token);
+                int len = seek_num(program, token);
+                if(len < 0)
+                {
+                    parse_error(source, program_head, program, start_line, start_col, "invalid char literal");
+                }
+                program += len;
             } break;
             case '@': {// define macro
                 program++;//jump @
 
                 // seek macro name
                 char macro_name[64];
-                program += seek_identifier(program, macro_name);
+                int macro_name_len = seek_identifier(program, macro_name);
+                if(macro_name_len < 0)
+                {
+                    parse_error(source, program_head, program, start_line, start_col, "identifier too long (>64)");
+                }
+                program += macro_name_len;
 
                 // seek macro content
                 int length = 0;
-                Token *macro_content = tokenize(program, &length);
+                int macro_line, macro_col;
+                compute_line_col(program_head, program, start_line, start_col, &macro_line, &macro_col);
+                Token *macro_content = tokenize_internal(program, &length, source, macro_line, macro_col);
                 program += length;
 
 #ifdef DEBUG
@@ -348,26 +498,43 @@ Token* tokenize(char *program, int *consumed_length)
                 int length = 0;
                 while(*program != '\"')
                 {
-                    str[length++] = *(program++);
-                    if(length>256)
+                    if(*program == '\0')
                     {
-                        printf("string too long!!\n");
-                        exit(1);
+                        parse_error(source, program_head, program, start_line, start_col, "unterminated string");
+                    }
+                    str[length++] = *(program++);
+                    if(length >= 256)
+                    {
+                        parse_error(source, program_head, program, start_line, start_col, "string too long (>=256)");
                     }
                 }
                 program++;//jump the second "
                 str[length++] = '\0';
-                token->next = newToken(NEW_STRING);
+                token->next = newTokenAtCursor(NEW_STRING, source, program_head, program, start_line, start_col);
                 token->next->ptr = str;
                 token = token->next;
             } break;
             default:
-                printf("Unknown char %c\n", *program);
-                exit(1);
+                parse_error(source, program_head, program, start_line, start_col, "unknown character");
         }
     }
+
+    if(pair_pointer > 0)
+    {
+        parse_error_token(pair_stack[pair_pointer-1], "unclosed '['");
+    }
+    if(tuple_pointer > 0)
+    {
+        parse_error_token(tuple_stack[tuple_pointer-1], "unclosed '('");
+    }
+
     *consumed_length = program - program_head;
     return head;
+}
+
+Token* tokenize(char *program, int *consumed_length, const char *source)
+{
+    return tokenize_internal(program, consumed_length, source, 1, 1);
 }
 
 #endif

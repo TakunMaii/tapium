@@ -17,13 +17,17 @@ int main(int argn, char** argv)
     // read the program file
     long fileLength;
     char *fileContent = read_file(argv[1], &fileLength);
+    if(!fileContent)
+    {
+        return 1;
+    }
 
     // initialize macroMap
     macroMap = token_hashmap_create(127);
 
     // tokenize the program
     int length = 0;
-    Token *tokens = tokenize(fileContent, &length);
+    Token *tokens = tokenize(fileContent, &length, argv[1]);
 #ifdef DEBUG
     printf("===TOKENS===\n");
     printTokens(tokens);

@@ -9,6 +9,7 @@ void tap_get_rand()
 {
     long long *tape = region_stack[region_pointer-1]->tape;
     int pointer = region_stack[region_pointer-1]->pointer;
+    ensure_pointer_in_bounds(pointer);
     tape[pointer] = rand();
 }
 
@@ -18,6 +19,8 @@ void tap_push()
     int pointer = region_stack[region_pointer-1]->pointer;
     long long *stack = region_stack[region_pointer-1]->stack;
     int stack_pointer = region_stack[region_pointer-1]->stack_pointer;
+    ensure_pointer_in_bounds(pointer);
+    ensure_stack_not_full();
     stack[stack_pointer] = tape[pointer];
     region_stack[region_pointer-1]->stack_pointer++;
 }
@@ -28,6 +31,8 @@ void tap_pop()
     int pointer = region_stack[region_pointer-1]->pointer;
     long long *stack = region_stack[region_pointer-1]->stack;
     int stack_pointer = region_stack[region_pointer-1]->stack_pointer;
+    ensure_pointer_in_bounds(pointer);
+    ensure_stack_not_empty();
     tape[pointer] = stack[stack_pointer-1];
     region_stack[region_pointer-1]->stack_pointer--;
 }
@@ -38,6 +43,8 @@ void tap_peek()
     int pointer = region_stack[region_pointer-1]->pointer;
     long long *stack = region_stack[region_pointer-1]->stack;
     int stack_pointer = region_stack[region_pointer-1]->stack_pointer;
+    ensure_pointer_in_bounds(pointer);
+    ensure_stack_not_empty();
     tape[pointer] = stack[stack_pointer-1];
 }
 
@@ -47,6 +54,8 @@ void tap_add()
     int pointer = region_stack[region_pointer-1]->pointer;
     long long *stack = region_stack[region_pointer-1]->stack;
     int stack_pointer = region_stack[region_pointer-1]->stack_pointer;
+    ensure_pointer_in_bounds(pointer);
+    ensure_stack_not_empty();
     tape[pointer] = tape[pointer] + stack[stack_pointer-1];
 }
 
@@ -56,6 +65,8 @@ void tap_sub()
     int pointer = region_stack[region_pointer-1]->pointer;
     long long *stack = region_stack[region_pointer-1]->stack;
     int stack_pointer = region_stack[region_pointer-1]->stack_pointer;
+    ensure_pointer_in_bounds(pointer);
+    ensure_stack_not_empty();
     tape[pointer] = tape[pointer] - stack[stack_pointer-1];
 }
 
@@ -65,6 +76,8 @@ void tap_mul()
     int pointer = region_stack[region_pointer-1]->pointer;
     long long *stack = region_stack[region_pointer-1]->stack;
     int stack_pointer = region_stack[region_pointer-1]->stack_pointer;
+    ensure_pointer_in_bounds(pointer);
+    ensure_stack_not_empty();
     tape[pointer] = tape[pointer] * stack[stack_pointer-1];
 }
 
@@ -74,6 +87,12 @@ void tap_div()
     int pointer = region_stack[region_pointer-1]->pointer;
     long long *stack = region_stack[region_pointer-1]->stack;
     int stack_pointer = region_stack[region_pointer-1]->stack_pointer;
+    ensure_pointer_in_bounds(pointer);
+    ensure_stack_not_empty();
+    if(stack[stack_pointer-1] == 0)
+    {
+        runtime_error("division by zero");
+    }
     tape[pointer] = tape[pointer] / stack[stack_pointer-1];
 }
 
@@ -83,6 +102,8 @@ void tap_eq()
     int pointer = region_stack[region_pointer-1]->pointer;
     long long *stack = region_stack[region_pointer-1]->stack;
     int stack_pointer = region_stack[region_pointer-1]->stack_pointer;
+    ensure_pointer_in_bounds(pointer);
+    ensure_stack_not_empty();
     tape[pointer] = tape[pointer] == stack[stack_pointer-1];
 }
 
@@ -92,6 +113,8 @@ void tap_ineq()
     int pointer = region_stack[region_pointer-1]->pointer;
     long long *stack = region_stack[region_pointer-1]->stack;
     int stack_pointer = region_stack[region_pointer-1]->stack_pointer;
+    ensure_pointer_in_bounds(pointer);
+    ensure_stack_not_empty();
     tape[pointer] = tape[pointer] != stack[stack_pointer-1];
 }
 
@@ -101,6 +124,8 @@ void tap_greater()
     int pointer = region_stack[region_pointer-1]->pointer;
     long long *stack = region_stack[region_pointer-1]->stack;
     int stack_pointer = region_stack[region_pointer-1]->stack_pointer;
+    ensure_pointer_in_bounds(pointer);
+    ensure_stack_not_empty();
     tape[pointer] = tape[pointer] > stack[stack_pointer-1];
 }
 
@@ -110,6 +135,8 @@ void tap_less()
     int pointer = region_stack[region_pointer-1]->pointer;
     long long *stack = region_stack[region_pointer-1]->stack;
     int stack_pointer = region_stack[region_pointer-1]->stack_pointer;
+    ensure_pointer_in_bounds(pointer);
+    ensure_stack_not_empty();
     tape[pointer] = tape[pointer] < stack[stack_pointer-1];
 }
 
@@ -119,6 +146,8 @@ void tap_greater_eq()
     int pointer = region_stack[region_pointer-1]->pointer;
     long long *stack = region_stack[region_pointer-1]->stack;
     int stack_pointer = region_stack[region_pointer-1]->stack_pointer;
+    ensure_pointer_in_bounds(pointer);
+    ensure_stack_not_empty();
     tape[pointer] = tape[pointer] >= stack[stack_pointer-1];
 }
 
@@ -128,6 +157,8 @@ void tap_less_eq()
     int pointer = region_stack[region_pointer-1]->pointer;
     long long *stack = region_stack[region_pointer-1]->stack;
     int stack_pointer = region_stack[region_pointer-1]->stack_pointer;
+    ensure_pointer_in_bounds(pointer);
+    ensure_stack_not_empty();
     tape[pointer] = tape[pointer] <= stack[stack_pointer-1];
 }
 
@@ -137,6 +168,12 @@ void tap_mem()
     int pointer = region_stack[region_pointer-1]->pointer;
     long long *stack = region_stack[region_pointer-1]->stack;
     int stack_pointer = region_stack[region_pointer-1]->stack_pointer;
+    ensure_pointer_in_bounds(pointer);
+    ensure_stack_not_empty();
+    if(stack[stack_pointer-1] <= 0)
+    {
+        runtime_error("mem size must be positive");
+    }
     tape[pointer] = (long long)malloc(stack[stack_pointer-1]);
 }
 
@@ -144,8 +181,7 @@ void tap_free()
 {
     long long *tape = region_stack[region_pointer-1]->tape;
     int pointer = region_stack[region_pointer-1]->pointer;
-    long long *stack = region_stack[region_pointer-1]->stack;
-    int stack_pointer = region_stack[region_pointer-1]->stack_pointer;
+    ensure_pointer_in_bounds(pointer);
     free((void*)tape[pointer]);
 }
 
