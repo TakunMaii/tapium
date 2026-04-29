@@ -6,6 +6,8 @@
 #include <string.h>
 #include <ctype.h>
 #include "file.h"
+#include "ir.h"
+#include "embeded_func.h"
 
 typedef struct StringBuilder {
     char *buf;
@@ -311,59 +313,332 @@ static inline char *default_output_name(const char *input_path)
     return output;
 }
 
-static inline int compile_to_executable(const char *input_path, const char *output_path)
+static inline char *default_c_output_name(const char *input_path)
+{
+    const char *base = input_path;
+    for (const char *p = input_path; *p; p++) {
+        if (*p == '\\' || *p == '/') {
+            base = p + 1;
+        }
+    }
+
+    const char *dot = strrchr(base, '.');
+    size_t base_len = dot ? (size_t)(dot - base) : strlen(base);
+    if (base_len == 0) {
+        base_len = strlen(base);
+    }
+
+    char *output = (char*)malloc(base_len + 3);
+    if (!output) {
+        return NULL;
+    }
+
+    memcpy(output, base, base_len);
+    memcpy(output + base_len, ".c", 3);
+    return output;
+}
+
+static inline int ir_instruction_count(IRProgram *ir)
+{
+    int count = 0;
+    IRInst *inst = ir->head;
+    while(inst)
+    {
+        count++;
+        inst = inst->next;
+    }
+    return count;
+}
+
+static inline const char *embedded_name_to_c_func(const char *name)
+{
+    if(strcmp(name, "rand") == 0) return "tap_get_rand";
+    if(strcmp(name, "push") == 0) return "tap_push";
+    if(strcmp(name, "pop") == 0) return "tap_pop";
+    if(strcmp(name, "peek") == 0) return "tap_peek";
+    if(strcmp(name, "add") == 0) return "tap_add";
+    if(strcmp(name, "sub") == 0) return "tap_sub";
+    if(strcmp(name, "mul") == 0) return "tap_mul";
+    if(strcmp(name, "div") == 0) return "tap_div";
+    if(strcmp(name, "greater") == 0) return "tap_greater";
+    if(strcmp(name, "less") == 0) return "tap_less";
+    if(strcmp(name, "greater_eq") == 0) return "tap_greater_eq";
+    if(strcmp(name, "less_eq") == 0) return "tap_less_eq";
+    if(strcmp(name, "eq") == 0) return "tap_eq";
+    if(strcmp(name, "ineq") == 0) return "tap_ineq";
+    if(strcmp(name, "mem") == 0) return "tap_mem";
+    if(strcmp(name, "free") == 0) return "tap_free";
+    return 0;
+}
+
+static inline void emit_codegen_headers(FILE *out)
+{
+    fputs("#include <stdlib.h>\n", out);
+    fputs("#include <string.h>\n", out);
+    fputs("#include <stdio.h>\n", out);
+    fputs("#include \"src/hashmap.h\"\n", out);
+    fputs("#include \"src/simulate.h\"\n", out);
+    fputs("#include \"src/token.h\"\n", out);
+    fputs("#include \"src/embeded_func.h\"\n\n", out);
+}
+
+static inline void emit_ir_metadata_array(FILE *out, IRProgram *ir, int inst_count)
+{
+    fputs("static Token IR_META[] = {\n", out);
+    IRInst *inst = ir->head;
+    while(inst)
+    {
+        fputs("    { .source = ", out);
+        write_c_string_literal(out, inst->source[0] ? inst->source : "<unknown>");
+        fprintf(out, ", .line = %d, .column = %d },\n", inst->line, inst->column);
+        inst = inst->next;
+    }
+    if(inst_count == 0)
+    {
+        fputs("    {0},\n", out);
+    }
+    fputs("};\n\n", out);
+}
+
+static inline void emit_ir_runtime_helpers(FILE *out)
+{
+    fputs("static int ir_resolve_num(int num, int use_stack_top)\n", out);
+    fputs("{\n", out);
+    fputs("    if(use_stack_top)\n", out);
+    fputs("    {\n", out);
+    fputs("        ensure_stack_not_empty();\n", out);
+    fputs("        return STACK[STPTR-1];\n", out);
+    fputs("    }\n", out);
+    fputs("    return num;\n", out);
+    fputs("}\n\n", out);
+}
+
+static inline void emit_instruction_c(FILE *out, IRInst *inst)
+{
+    switch(inst->op)
+    {
+        case IR_ADD:
+            fprintf(out, "    ensure_pointer_in_bounds(POINTER); TAPE[POINTER] += ir_resolve_num(%d, %d);\n", inst->num, inst->num_using_stack_top);
+            break;
+        case IR_SUB:
+            fprintf(out, "    ensure_pointer_in_bounds(POINTER); TAPE[POINTER] -= ir_resolve_num(%d, %d);\n", inst->num, inst->num_using_stack_top);
+            break;
+        case IR_MOVE_R:
+            fprintf(out, "    POINTER += ir_resolve_num(%d, %d); ensure_pointer_in_bounds(POINTER);\n", inst->num, inst->num_using_stack_top);
+            break;
+        case IR_MOVE_L:
+            fprintf(out, "    POINTER -= ir_resolve_num(%d, %d); ensure_pointer_in_bounds(POINTER);\n", inst->num, inst->num_using_stack_top);
+            break;
+        case IR_INPUT:
+            fputs("    ensure_pointer_in_bounds(POINTER);\n", out);
+            if(inst->type == INTEGER)
+            {
+                fputs("    scanf(\"%lld\", &TAPE[POINTER]);\n", out);
+            }
+            else if(inst->type == STRING)
+            {
+                fputs("    { char *str = (char*)malloc(256); if(!str) runtime_error(\"malloc failed\"); scanf(\"%255s\", str); TAPE[POINTER] = (long long)str; }\n", out);
+            }
+            else
+            {
+                fputs("    scanf(\"%c\", (char*)&TAPE[POINTER]);\n", out);
+            }
+            break;
+        case IR_OUTPUT:
+            fputs("    ensure_pointer_in_bounds(POINTER);\n", out);
+            if(inst->type == INTEGER)
+            {
+                fputs("    printf(\"%lld\", TAPE[POINTER]);\n", out);
+            }
+            else if(inst->type == STRING)
+            {
+                fputs("    printf(\"%s\", (char*)TAPE[POINTER]);\n", out);
+            }
+            else
+            {
+                fputs("    printf(\"%c\", (int)TAPE[POINTER]);\n", out);
+            }
+            break;
+        case IR_JUMP_IF_ZERO:
+            if(inst->label == 0)
+            {
+                fputs("    ensure_pointer_in_bounds(POINTER); if(!TAPE[POINTER]) goto L_END;\n", out);
+            }
+            else
+            {
+                fprintf(out, "    ensure_pointer_in_bounds(POINTER); if(!TAPE[POINTER]) goto L%d;\n", inst->label);
+            }
+            break;
+        case IR_JUMP_IF_NONZERO:
+            if(inst->label == 0)
+            {
+                fputs("    ensure_pointer_in_bounds(POINTER); if(TAPE[POINTER]) goto L_END;\n", out);
+            }
+            else
+            {
+                fprintf(out, "    ensure_pointer_in_bounds(POINTER); if(TAPE[POINTER]) goto L%d;\n", inst->label);
+            }
+            break;
+        case IR_TUPLE_BEGIN:
+            fputs("    if(tuple_times_pointer >= 128) runtime_error(\"tuple nesting too deep\");\n", out);
+            fprintf(out, "    tuple_times_stack[tuple_times_pointer++] = ir_resolve_num(%d, %d);\n", inst->num, inst->num_using_stack_top);
+            if(inst->label == 0)
+            {
+                fputs("    if(tuple_times_stack[tuple_times_pointer-1] <= 0) { tuple_times_pointer--; goto L_END; }\n", out);
+            }
+            else
+            {
+                fprintf(out, "    if(tuple_times_stack[tuple_times_pointer-1] <= 0) { tuple_times_pointer--; goto L%d; }\n", inst->label);
+            }
+            break;
+        case IR_TUPLE_END:
+            fputs("    if(tuple_times_pointer <= 0) runtime_error(\"tuple stack underflow\");\n", out);
+            if(inst->label == 0)
+            {
+                fputs("    if(--tuple_times_stack[tuple_times_pointer-1]) goto L_END; else tuple_times_pointer--;\n", out);
+            }
+            else
+            {
+                fprintf(out, "    if(--tuple_times_stack[tuple_times_pointer-1]) goto L%d; else tuple_times_pointer--;\n", inst->label);
+            }
+            break;
+        case IR_REGION_PUSH:
+            fprintf(out, "    pushRegionWith(ir_resolve_num(%d, %d));\n", inst->num, inst->num_using_stack_top);
+            break;
+        case IR_REGION_POP:
+            fprintf(out, "    popRegionWith(ir_resolve_num(%d, %d));\n", inst->num, inst->num_using_stack_top);
+            break;
+        case IR_NEW_STRING:
+            fputs("    ensure_pointer_in_bounds(POINTER);\n", out);
+            fputs("    {\n", out);
+            fputs("        char *tap_str = (char*)malloc(", out);
+            fprintf(out, "%zu", inst->text ? strlen(inst->text) + 1 : (size_t)1);
+            fputs(");\n", out);
+            fputs("        if(!tap_str) runtime_error(\"malloc failed\");\n", out);
+            fputs("        strcpy(tap_str, ", out);
+            write_c_string_literal(out, inst->text ? inst->text : "");
+            fputs(");\n", out);
+            fputs("        TAPE[POINTER] = (long long)tap_str;\n", out);
+            fputs("    }\n", out);
+            break;
+        case IR_CALL_EMBED: {
+            const char *func = embedded_name_to_c_func(inst->name);
+            if(func)
+            {
+                fprintf(out, "    %s();\n", func);
+            }
+            else
+            {
+                fputs("    runtime_error(\"unknown embedded function in IR\");\n", out);
+            }
+        } break;
+        case IR_CALL_MACRO:
+            fputs("    runtime_error(\"unresolved macro call in compiled IR backend\");\n", out);
+            break;
+    }
+}
+
+static inline int emit_ir_c_program(const char *generated_c, IRProgram *ir)
+{
+    FILE *out = fopen(generated_c, "wb");
+    if(!out)
+    {
+        perror("Failed to create generated C file");
+        return 0;
+    }
+
+    int inst_count = ir_instruction_count(ir);
+    emit_codegen_headers(out);
+    emit_ir_metadata_array(out, ir, inst_count);
+    emit_ir_runtime_helpers(out);
+    fputs("int main(void)\n{\n", out);
+    fputs("    int tuple_times_stack[128];\n", out);
+    fputs("    int tuple_times_pointer = 0;\n", out);
+    fputs("    pushRegionWith(0);\n", out);
+
+    int index = 0;
+    IRInst *inst = ir->head;
+    while(inst)
+    {
+        int label = ir_label_for_token(ir, inst->origin, inst->scope);
+        if(label > 0)
+        {
+            fprintf(out, "L%d:\n", label);
+        }
+        fprintf(out, "    runtime_current_token = &IR_META[%d];\n", index);
+        emit_instruction_c(out, inst);
+        inst = inst->next;
+        index++;
+    }
+
+    fputs("L_END:\n", out);
+    fputs("    return 0;\n", out);
+    fputs("}\n", out);
+    fclose(out);
+    return 1;
+}
+
+static inline int compile_to_c_source(const char *input_path, const char *output_c_path)
 {
     char *program = load_expanded_program(input_path);
     if (!program) {
         return 1;
     }
 
-    const char *generated_c = "__tapium_build_tmp.c";
-    FILE *out = fopen(generated_c, "wb");
-    if (!out) {
-        perror("Failed to create generated C file");
+    macroMap = token_hashmap_create(127);
+    if(!macroMap)
+    {
+        free(program);
+        return 1;
+    }
+    register_embeded_func();
+    int length = 0;
+    Token *tokens = tokenize(program, &length, input_path);
+    IRProgram *ir = new_ir_program();
+    if(!ir)
+    {
+        free(program);
+        return 1;
+    }
+    generate_ir_from_tokens(ir, tokens);
+    IRInst *first_macro_call = 0;
+    if(ir_has_unresolved_macro(ir, &first_macro_call))
+    {
+        printf(
+            "Build error at %s:%d:%d: unresolved macro call '%s' (likely recursive macro, IR backend requires inlining)\n",
+            first_macro_call->source[0] ? first_macro_call->source : "<unknown>",
+            first_macro_call->line,
+            first_macro_call->column,
+            first_macro_call->name
+        );
         free(program);
         return 1;
     }
 
-    fputs("#include <stdlib.h>\n", out);
-    fputs("#include <string.h>\n", out);
-    fputs("#include \"src/hashmap.h\"\n", out);
-    fputs("#include \"src/simulate.h\"\n", out);
-    fputs("#include \"src/token.h\"\n", out);
-    fputs("#include \"src/file.h\"\n", out);
-    fputs("#include \"src/embeded_func.h\"\n\n", out);
-    fputs("static const char *TAP_PROGRAM = ", out);
-    write_c_string_literal(out, program);
-    fputs(";\n\n", out);
-    fputs("int main(void)\n{\n", out);
-    fputs("    char *program = (char*)malloc(strlen(TAP_PROGRAM) + 1);\n", out);
-    fputs("    if (!program) {\n", out);
-    fputs("        return 1;\n", out);
-    fputs("    }\n", out);
-    fputs("    strcpy(program, TAP_PROGRAM);\n", out);
-    fputs("    macroMap = token_hashmap_create(127);\n", out);
-    fputs("    if (!macroMap) {\n", out);
-    fputs("        free(program);\n", out);
-    fputs("        return 1;\n", out);
-    fputs("    }\n", out);
-    fputs("    int length = 0;\n", out);
-    fputs("    Token *tokens = tokenize(program, &length, ", out);
-    write_c_string_literal(out, input_path);
-    fputs(");\n", out);
-    fputs("    pushRegionWith(0);\n", out);
-    fputs("    register_embeded_func();\n", out);
-    fputs("    simulate(tokens);\n", out);
-    fputs("    return 0;\n", out);
-    fputs("}\n", out);
-    fclose(out);
+    if(!emit_ir_c_program(output_c_path, ir))
+    {
+        free(program);
+        return 1;
+    }
+
+    free(program);
+    return 0;
+}
+
+static inline int compile_to_executable(const char *input_path, const char *output_path)
+{
+    const char *generated_c = "__tapium_build_tmp.c";
+    int c_codegen_result = compile_to_c_source(input_path, generated_c);
+    if(c_codegen_result != 0)
+    {
+        return c_codegen_result;
+    }
 
     char command[1024];
     snprintf(command, sizeof(command), "gcc \"%s\" -o \"%s\"", generated_c, output_path);
     int compile_code = system(command);
 
     remove(generated_c);
-    free(program);
 
     if (compile_code != 0) {
         printf("Build failed while compiling generated C source.\n");
